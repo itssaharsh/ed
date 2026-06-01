@@ -467,8 +467,18 @@ def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, desc
     try:
         credentials = Credentials.from_authorized_user_file(str(config.youtube_credentials), scopes=[YOUTUBE_UPLOAD_SCOPE])
         if credentials.expired and credentials.refresh_token:
+            logger.info("YouTube token expired. Refreshing token...")
             credentials.refresh(Request())
-            config.youtube_credentials.write_text(credentials.to_json(), encoding="utf-8")
+            new_creds_json = credentials.to_json()
+            config.youtube_credentials.write_text(new_creds_json, encoding="utf-8")
+            
+            # Write the new token to GITHUB_OUTPUT so the workflow file can capture and save it permanently
+            github_output = os.environ.get("GITHUB_OUTPUT")
+            if github_output:
+                with open(github_output, "a", encoding="utf-8") as f:
+                    delimiter = "EOF_CREDS"
+                    f.write(f"new_youtube_creds<<{delimiter}\n{new_creds_json}\n{delimiter}\n")
+                logger.info("Exported updated credentials to GITHUB_OUTPUT for GitHub Actions to capture.")
 
         youtube = build("youtube", "v3", credentials=credentials)
         body = {
