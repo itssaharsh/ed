@@ -14,7 +14,16 @@ from pathlib import Path
 from typing import Any, Iterable, Optional
 
 import edge_tts
-import google.generativeai as genai
+
+# Handle Google GenAI SDK deprecation gracefully by trying the new SDK first
+try:
+    from google import genai
+    from google.genai import types
+    USE_NEW_GEMINI_SDK = True
+except ImportError:
+    import google.generativeai as genai
+    USE_NEW_GEMINI_SDK = False
+
 import requests
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -54,7 +63,7 @@ logger = logging.getLogger(__name__)
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
 DEFAULT_VOICE = "en-US-GuyNeural"
-DEFAULT_GEMINI_MODEL = "gemini-1.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"  # Updated to newer default
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
@@ -136,15 +145,56 @@ def main() -> int:
         return 0
 
 
+def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float) -> str:
+    """Helper to route Gemini requests through either the new SDK or the old deprecated SDK."""
+    if USE_NEW_GEMINI_SDK:
+        client = genai.Client(api_key=api_key)
+        safety_settings = [
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HARASSMENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_HATE_SPEECH, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+            types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
+        ]
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                temperature=temperature,
+                top_p=0.95 if temperature == 1.0 else 0.9,
+                max_output_tokens=512,
+                response_mime_type="application/json",
+                safety_settings=safety_settings
+            )
+        )
+        return response.text or ""
+    else:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(model_name)
+        safety_settings = [
+            {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
+            {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
+        ]
+        response = model.generate_content(
+            prompt,
+            safety_settings=safety_settings,
+            generation_config={
+                "temperature": temperature,
+                "top_p": 0.95 if temperature == 1.0 else 0.9,
+                "max_output_tokens": 512,
+                "response_mime_type": "application/json",
+            },
+        )
+        return _response_text(response)
+
+
 def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
     if not config.gemini_api_key:
         logger.error("GEMINI_API_KEY is missing. Skipping content generation.")
         return None
-    # Try using Gemini; if it fails (model unavailable or API mismatch),
-    # fall back to a small local pool so the pipeline can continue.
+        
     try:
-        genai.configure(api_key=config.gemini_api_key)
-
         prompt = (
             "You are generating a short-form YouTube Shorts concept in a funny, punchline-driven dark-comedy tone. "
             "Return only strict JSON with exactly these keys: title, description, script, search_query. "
@@ -155,61 +205,35 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             "The JSON values must all be strings."
         )
 
-        # Try a list of candidate Gemini model names in case the default is unavailable.
         candidate_models = [
             config.gemini_model,
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
             "gemini-1.5-flash",
-            "gemini-1.5",
-            "gemini-1.2",
+            "gemini-1.5-pro"
         ]
+        
         last_exc: Exception | None = None
         for candidate in candidate_models:
             if not candidate:
                 continue
             try:
                 logger.info("Attempting Gemini model: %s", candidate)
-                model = genai.GenerativeModel(candidate)
                 
-                # Disable safety filters which regularly block the "dark-comedy" prompt
-                safety_settings = [
-                    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_NONE"},
-                    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_NONE"},
-                ]
-
-                raw_text = _response_text(
-                    model.generate_content(
-                        prompt,
-                        safety_settings=safety_settings,
-                        generation_config={
-                            "temperature": 1.0,
-                            "top_p": 0.95,
-                            "max_output_tokens": 512,
-                            "response_mime_type": "application/json", # Forces strict JSON output
-                        },
-                    )
-                )
+                raw_text = _call_gemini(config.gemini_api_key, candidate, prompt, temperature=1.0)
                 brief = _parse_brief_json(raw_text)
                 if brief is not None:
                     return brief
+                    
                 logger.warning("Gemini response from model %s was not valid JSON.", candidate)
+                
                 # Retry once with a stricter instruction
-                raw_text = _response_text(
-                    model.generate_content(
-                        prompt + " Output valid JSON only. No leading or trailing text.",
-                        safety_settings=safety_settings,
-                        generation_config={
-                            "temperature": 0.8,
-                            "top_p": 0.9,
-                            "max_output_tokens": 512,
-                            "response_mime_type": "application/json", # Forces strict JSON output
-                        },
-                    )
-                )
+                strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
+                raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
                 brief = _parse_brief_json(raw_text)
                 if brief is not None:
                     return brief
+                    
             except Exception as exc:  # try the next model
                 logger.warning("Gemini model %s failed: %s", candidate, exc)
                 last_exc = exc
@@ -494,7 +518,7 @@ def _response_text(response: Any) -> str:
 
 
 def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
-    url = "[https://api.openai.com/v1/chat/completions](https://api.openai.com/v1/chat/completions)"
+    url = "https://api.openai.com/v1/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
