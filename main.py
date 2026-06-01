@@ -176,6 +176,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                             "temperature": 1.0,
                             "top_p": 0.95,
                             "max_output_tokens": 512,
+                            "response_mime_type": "application/json", # Forces strict JSON output
                         },
                     )
                 )
@@ -191,6 +192,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                             "temperature": 0.8,
                             "top_p": 0.9,
                             "max_output_tokens": 512,
+                            "response_mime_type": "application/json", # Forces strict JSON output
                         },
                     )
                 )
@@ -211,11 +213,11 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             except Exception:
                 logger.exception("Failed to write Gemini diagnostic file.")
 
-        # Try a low-cost external LLM (OpenAI gpt-3.5-turbo) if available.
+        # Try a low-cost external LLM (OpenAI gpt-4o-mini) if available.
         openai_key = os.environ.get("OPENAI_API_KEY")
         if openai_key:
             try:
-                logger.info("Attempting OpenAI gpt-3.5-turbo as fallback")
+                logger.info("Attempting OpenAI gpt-4o-mini as fallback")
                 openai_text = _try_openai_prompt(openai_key, prompt)
                 brief = _parse_brief_json(openai_text or "")
                 if brief is not None:
@@ -487,7 +489,8 @@ def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
         "Content-Type": "application/json",
     }
     payload = {
-        "model": "gpt-3.5-turbo",
+        "model": "gpt-4o-mini",
+        "response_format": { "type": "json_object" },
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
         "max_tokens": 700,
@@ -508,210 +511,10 @@ def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
 
 
 def _parse_brief_json(raw_text: str) -> ContentBrief | None:
-    candidate = raw_text.strip()
-    candidate = re.sub(r"^```(?:json)?\s*", "", candidate, flags=re.IGNORECASE)
-    candidate = re.sub(r"\s*```$", "", candidate)
-
-    start = candidate.find("{")
-    end = candidate.rfind("}")
-    if start == -1 or end == -1 or end <= start:
+    if not raw_text:
         return None
 
     try:
-        payload = json.loads(candidate[start : end + 1])
-    except json.JSONDecodeError:
-        return None
-
-    if not isinstance(payload, dict):
-        return None
-
-    title = _normalize_text(payload.get("title"), max_length=120)
-    description = _normalize_text(payload.get("description"), max_length=500)
-    script = _normalize_text(payload.get("script"), max_length=300)
-    search_query = _normalize_search_query(payload.get("search_query"))
-
-    if not title or not description or not script or not search_query:
-        return None
-
-    script = _limit_words(script, 90)
-    description = _ensure_shorts_hashtag(description)
-    return ContentBrief(title=title, description=description, script=script, search_query=search_query)
-
-
-def _normalize_text(value: Any, *, max_length: int) -> str:
-    if not isinstance(value, str):
-        return ""
-    cleaned = " ".join(value.strip().split())
-    return cleaned[:max_length].strip()
-
-
-def _normalize_search_query(value: Any) -> str:
-    if not isinstance(value, str):
-        return ""
-    words = re.findall(r"[A-Za-z0-9]+", value.lower())
-    if not words:
-        return ""
-    return " ".join(words[:2])
-
-
-def _limit_words(text: str, max_words: int) -> str:
-    words = text.split()
-    if len(words) <= max_words:
-        return text
-    return " ".join(words[:max_words])
-
-
-def _ensure_shorts_hashtag(description: str) -> str:
-    desc = description.strip()
-    required_tags = ["#shorts", "#comedy", "#darkhumor"]
-    lower = desc.lower()
-    missing = [tag for tag in required_tags if tag not in lower]
-    if missing:
-        if desc:
-            desc = f"{desc}\n\n{' '.join(missing)}"
-        else:
-            desc = " ".join(missing)
-    return desc
-
-
-def _ensure_shorts_tag(title: str) -> str:
-    cleaned = title.strip()
-    if "#shorts" not in cleaned.lower():
-        cleaned = f"{cleaned} #shorts".strip()
-    return cleaned
-
-
-def _best_mp4_link(video_files: Iterable[dict[str, Any]]) -> str | None:
-    candidates = []
-    for item in video_files:
-        if not isinstance(item, dict):
-            continue
-        link = item.get("link")
-        if not isinstance(link, str) or not link:
-            continue
-        file_type = str(item.get("file_type", "")).lower()
-        if file_type not in {"video/mp4", "application/mp4", ""} and not link.lower().endswith(".mp4"):
-            continue
-        width = int(item.get("width") or 0)
-        height = int(item.get("height") or 0)
-        bitrate = int(item.get("bitrate") or 0)
-        candidates.append(((width * height, bitrate), link))
-    if not candidates:
-        return None
-    candidates.sort(key=lambda entry: entry[0], reverse=True)
-    return candidates[0][1]
-
-
-def _parse_srt_file(path: Path) -> list[SrtCue]:
-    text = path.read_text(encoding="utf-8").strip()
-    if not text:
-        return []
-
-    cues: list[SrtCue] = []
-    blocks = re.split(r"\n\s*\n", text)
-    for block in blocks:
-        lines = [line.strip("\ufeff") for line in block.splitlines() if line.strip()]
-        if len(lines) < 2:
-            continue
-        timing_line_index = 0 if "-->" in lines[0] else 1 if len(lines) > 1 and "-->" in lines[1] else -1
-        if timing_line_index == -1:
-            continue
-        timing_line = lines[timing_line_index]
-        content_lines = lines[timing_line_index + 1 :]
-        start_text, end_text = [part.strip() for part in timing_line.split("-->", 1)]
-        start_seconds = _srt_timestamp_to_seconds(start_text)
-        end_seconds = _srt_timestamp_to_seconds(end_text)
-        content = " ".join(content_lines).strip()
-        if content:
-            cues.append(SrtCue(start=start_seconds, end=end_seconds, text=content))
-    return cues
-
-
-def _srt_timestamp_to_seconds(timestamp: str) -> float:
-    hours, minutes, rest = timestamp.split(":")
-    seconds, milliseconds = rest.split(",")
-    total = int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-    return float(total) + (int(milliseconds) / 1000.0)
-
-
-def _subtitle_clip_for_cue(cue: SrtCue) -> ImageClip:
-    image_path = _render_caption_image(cue.text)
-    clip = ImageClip(str(image_path)).set_start(cue.start).set_duration(max(cue.end - cue.start, 0.2))
-    return clip.set_position(("center", "center"))
-
-
-def _render_caption_image(text: str) -> Path:
-    temp_dir = Path(__file__).resolve().parent / "_caption_cache"
-    temp_dir.mkdir(parents=True, exist_ok=True)
-    file_name = f"caption_{abs(hash(text))}.png"
-    output_path = temp_dir / file_name
-
-    image = Image.new("RGBA", (TARGET_WIDTH, 520), (0, 0, 0, 0))
-    draw = ImageDraw.Draw(image)
-    font = _load_caption_font(64)
-
-    wrapped_text = _wrap_text(draw, text, font, max_width=920)
-    bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, spacing=14, stroke_width=4)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (TARGET_WIDTH - text_width) / 2
-    y = (520 - text_height) / 2
-
-    # Subtle shadow for readability.
-    draw.multiline_text(
-        (x + 4, y + 4),
-        wrapped_text,
-        font=font,
-        fill=(0, 0, 0, 160),
-        spacing=14,
-        align="center",
-        stroke_width=0,
-    )
-    draw.multiline_text(
-        (x, y),
-        wrapped_text,
-        font=font,
-        fill=(255, 255, 255, 255),
-        spacing=14,
-        align="center",
-        stroke_width=4,
-        stroke_fill=(0, 0, 0, 255),
-    )
-    image.save(output_path)
-    return output_path
-
-
-def _load_caption_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
-    font_candidates = [
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
-        "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
-        "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
-    ]
-    for font_path in font_candidates:
-        if Path(font_path).exists():
-            return ImageFont.truetype(font_path, size=size)
-    return ImageFont.load_default()
-
-
-def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
-    words = text.split()
-    if not words:
-        return text
-
-    lines: list[str] = []
-    current_line = words[0]
-    for word in words[1:]:
-        candidate = f"{current_line} {word}"
-        bbox = draw.textbbox((0, 0), candidate, font=font)
-        width = bbox[2] - bbox[0]
-        if width <= max_width:
-            current_line = candidate
-        else:
-            lines.append(current_line)
-            current_line = word
-    lines.append(current_line)
-    return "\n".join(lines)
-
-
-if __name__ == "__main__":
-    sys.exit(main())
+        # Strip any accidental markdown just in case, though the APIs should prevent this now
+        cleaned = raw_text.strip()
+        cleaned = re.sub(r"^
