@@ -192,20 +192,32 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
         pool = [
             ContentBrief(
                 title="The Moon's Missing Water",
-                description="#space #fact Moon has water frozen in shadowed craters #shorts",
-                script="Scientists found water trapped as ice in permanently shadowed lunar craters.",
+                description="#space #fact #shorts The Moon hides water in cold, shadowed craters — and yes, it's inconveniently chill.",
+                script=(
+                    "Scientists discovered pockets of ice trapped in permanently shadowed lunar craters. "
+                    "It's like the Moon opened a tiny freezer and forgot the key. Imagine astronauts coming back with frozen coffee and a note: 'Do not thaw.' "
+                    "The surprising part: the Moon's backyard is more hydrated than some urban houseplants. Weird, but useful."
+                ),
                 search_query="moon",
             ),
             ContentBrief(
                 title="The Roman Concrete Secret",
-                description="#history #fact Romans used seawater to make concrete that lasted millennia #shorts",
-                script="Roman concrete got stronger with seawater — a lost recipe we're still studying.",
+                description="#history #fact #shorts Romans mixed seawater into concrete and somehow beat time at its own game.",
+                script=(
+                    "Roman builders used seawater chemistry to make concrete that actually got stronger over centuries. "
+                    "So while our modern buildings try their best, ancient Romans basically invented forever-pavement. "
+                    "Imagine a contractor pitching: 'Give me three centuries and I’ll make this sidewalk legendary.' It's a neat reminder: old tricks sometimes outlast new trends."
+                ),
                 search_query="ancient ruins",
             ),
             ContentBrief(
                 title="A Simple Mind Trick",
-                description="#psychology #hack Use this to appear more confident #shorts",
-                script="To feel more confident, stand tall and take three deep breaths before speaking.",
+                description="#psychology #hack #shorts A tiny posture trick that fools people into thinking you own the room.",
+                script=(
+                    "Want to seem more confident instantly? Stand tall, breathe deep, and pretend you have absolutely no idea you're being watched. "
+                    "People assume confident people always mean business — and the trick is they rarely check receipts. "
+                    "Use it before presentations or awkward elevator conversations. It's not magic, just convincing acting."
+                ),
                 search_query="person",
             ),
         ]
