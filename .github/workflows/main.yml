@@ -1,0 +1,53 @@
+name: Generate and Upload YouTube Shorts
+
+on:
+  schedule:
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+jobs:
+  run-pipeline:
+    runs-on: ubuntu-latest
+
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
+      YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
+      YOUTUBE_CREDENTIALS_JSON: ${{ secrets.YOUTUBE_CREDENTIALS_JSON }}
+      YOUTUBE_CLIENT_SECRETS_PATH: ${{ github.workspace }}/youtube_shorts_pipeline/client_secrets.json
+      YOUTUBE_CREDENTIALS_PATH: ${{ github.workspace }}/youtube_shorts_pipeline/credentials.json
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg imagemagick
+
+      - name: Install Python dependencies
+        working-directory: youtube_shorts_pipeline
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Materialize Google auth files
+        working-directory: youtube_shorts_pipeline
+        run: |
+          if [ -n "$YOUTUBE_CLIENT_SECRETS_JSON" ]; then
+            printf '%s' "$YOUTUBE_CLIENT_SECRETS_JSON" > client_secrets.json
+          fi
+          if [ -n "$YOUTUBE_CREDENTIALS_JSON" ]; then
+            printf '%s' "$YOUTUBE_CREDENTIALS_JSON" > credentials.json
+          fi
+
+      - name: Run Shorts pipeline
+        working-directory: youtube_shorts_pipeline
+        run: |
+          python main.py

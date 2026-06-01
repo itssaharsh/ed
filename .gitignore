@@ -1,0 +1,7 @@
+credentials.json
+client_secrets.json
+YOUTUBE_CREDENTIALS_JSON
+YOUTUBE_CLIENT_SECRETS_JSON
+.venv/
+_caption_cache/
+__pycache__/
