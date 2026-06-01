@@ -210,6 +210,19 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                 logger.info("Wrote Gemini diagnostic to %s", err_path)
             except Exception:
                 logger.exception("Failed to write Gemini diagnostic file.")
+
+        # Try a low-cost external LLM (OpenAI gpt-3.5-turbo) if available.
+        openai_key = os.environ.get("OPENAI_API_KEY")
+        if openai_key:
+            try:
+                logger.info("Attempting OpenAI gpt-3.5-turbo as fallback")
+                openai_text = _try_openai_prompt(openai_key, prompt)
+                brief = _parse_brief_json(openai_text or "")
+                if brief is not None:
+                    return brief
+                logger.warning("OpenAI response was not valid JSON, falling through to local pool.")
+            except Exception as exc:
+                logger.warning("OpenAI fallback failed: %s", exc)
     except Exception as exc:
         logger.warning("Gemini generation failed (%s). Falling back to local briefs.", exc)
 
@@ -465,6 +478,33 @@ def _response_text(response: Any) -> str:
         if parts:
             return "".join(parts)
     return str(response)
+
+
+def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": "gpt-3.5-turbo",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.8,
+        "max_tokens": 700,
+        "top_p": 0.95,
+    }
+    resp = requests.post(url, headers=headers, json=payload, timeout=30)
+    resp.raise_for_status()
+    data = resp.json()
+    # Defensive parsing
+    if not isinstance(data, dict):
+        return None
+    choices = data.get("choices") or []
+    if not choices or not isinstance(choices, list):
+        return None
+    message = choices[0].get("message") or {}
+    content = message.get("content") or choices[0].get("text")
+    return content
 
 
 def _parse_brief_json(raw_text: str) -> ContentBrief | None:
