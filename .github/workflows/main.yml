@@ -32,13 +32,13 @@ jobs:
           sudo apt-get install -y ffmpeg imagemagick
 
       - name: Install Python dependencies
-        working-directory: youtube_shorts_pipeline
+        working-directory: .
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
       - name: Materialize Google auth files
-        working-directory: youtube_shorts_pipeline
+        working-directory: .
         run: |
           if [ -n "$YOUTUBE_CLIENT_SECRETS_JSON" ]; then
             printf '%s' "$YOUTUBE_CLIENT_SECRETS_JSON" > client_secrets.json
@@ -48,6 +48,6 @@ jobs:
           fi
 
       - name: Run Shorts pipeline
-        working-directory: youtube_shorts_pipeline
+        working-directory: .
         run: |
           python main.py
