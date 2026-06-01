@@ -416,7 +416,7 @@ def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, desc
                 "title": _ensure_shorts_tag(title),
                 "description": _ensure_shorts_hashtag(description),
                 "categoryId": "22",
-                "tags": ["shorts", "history", "facts"],
+                "tags": ["shorts", "comedy", "darkhumor", "history", "facts"],
             },
             "status": {"privacyStatus": config.privacy_status},
         }
@@ -523,8 +523,14 @@ def _limit_words(text: str, max_words: int) -> str:
 
 def _ensure_shorts_hashtag(description: str) -> str:
     desc = description.strip()
-    if "#shorts" not in desc.lower():
-        desc = f"{desc}\n\n#shorts" if desc else "#shorts"
+    required_tags = ["#shorts", "#comedy", "#darkhumor"]
+    lower = desc.lower()
+    missing = [tag for tag in required_tags if tag not in lower]
+    if missing:
+        if desc:
+            desc = f"{desc}\n\n{' '.join(missing)}"
+        else:
+            desc = " ".join(missing)
     return desc
 
 
