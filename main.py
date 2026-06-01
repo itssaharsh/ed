@@ -293,8 +293,8 @@ def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Pa
         subtitle_clips = [_subtitle_clip_for_cue(cue) for cue in subtitle_cues]
 
         # Ensure a minimum runtime for the short. If TTS output is very short,
-        # pad with silence so the final video is at least 30 seconds long.
-        min_duration = 30.0
+        # pad with silence so the final video is at least 40 seconds long.
+        min_duration = 40.0
         if audio_clip.duration < min_duration:
             silence_duration = min_duration - audio_clip.duration
             fps = getattr(audio_clip, "fps", 44100)
@@ -312,7 +312,7 @@ def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Pa
             audio_clip = composite_audio
 
         try:
-            target_duration = float(audio_clip.duration)
+            target_duration = max(min_duration, float(audio_clip.duration))
             scale = max(TARGET_WIDTH / background_clip.w, TARGET_HEIGHT / background_clip.h)
             background = background_clip.resize(scale)
             background = background.fx(
