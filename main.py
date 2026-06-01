@@ -162,7 +162,7 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             config=types.GenerateContentConfig(
                 temperature=temperature,
                 top_p=0.95 if temperature == 1.0 else 0.9,
-                max_output_tokens=512,
+                max_output_tokens=2048,  # Increased from 512 to prevent truncated JSON
                 response_mime_type="application/json",
                 safety_settings=safety_settings
             )
@@ -183,7 +183,7 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             generation_config={
                 "temperature": temperature,
                 "top_p": 0.95 if temperature == 1.0 else 0.9,
-                "max_output_tokens": 512,
+                "max_output_tokens": 2048,  # Increased from 512 to prevent truncated JSON
                 "response_mime_type": "application/json",
             },
         )
@@ -538,7 +538,7 @@ def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
         "response_format": { "type": "json_object" },
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.8,
-        "max_tokens": 700,
+        "max_tokens": 2048,  # Increased to match Gemini limit
         "top_p": 0.95,
     }
     resp = requests.post(url, headers=headers, json=payload, timeout=30)
