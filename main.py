@@ -250,12 +250,37 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
 
 
 def generate_voice_and_captions(config: PipelineConfig, script: str) -> tuple[Path, Path] | tuple[None, None]:
+    # Ensure script is long enough for target duration by appending short
+    # humorous filler lines when necessary.
+    script = _stretch_script_to_target(script, target_seconds=40, wpm=150)
     try:
         asyncio.run(_generate_audio_and_srt(config.voice, script, config.output_audio, config.output_srt))
         return config.output_audio, config.output_srt
     except Exception as exc:  # noqa: BLE001
         logger.error("Voice generation failed: %s", exc)
         return None, None
+
+
+def _stretch_script_to_target(script: str, *, target_seconds: float = 40.0, wpm: int = 150) -> str:
+    if not script or not isinstance(script, str):
+        return script
+    words = script.split()
+    target_words = int(wpm * (target_seconds / 60.0))
+    if len(words) >= target_words:
+        return script
+
+    fillers = [
+        "Also, here's a tiny twist you didn't expect.",
+        "Strangely, that actually makes it worse — and funnier.",
+        "Which is to say: history has a dark sense of humor.",
+        "And yes, that detail makes the whole story deliciously awkward.",
+        "Quick aside: don't try this at home unless you enjoy surprises.",
+    ]
+    i = 0
+    while len(words) < target_words:
+        words.extend(fillers[i % len(fillers)].split())
+        i += 1
+    return " ".join(words[: max(len(words), target_words)])
 
 
 async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt_path: Path) -> None:
