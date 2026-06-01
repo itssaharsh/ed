@@ -144,7 +144,6 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
     # fall back to a small local pool so the pipeline can continue.
     try:
         genai.configure(api_key=config.gemini_api_key)
-        model = genai.GenerativeModel(config.gemini_model)
 
         prompt = (
             "You are generating a short-form YouTube Shorts concept in a funny, punchline-driven dark-comedy tone. "
@@ -156,38 +155,62 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             "The JSON values must all be strings."
         )
 
-        raw_text = _response_text(
-            model.generate_content(
-                prompt,
-                generation_config={
-                    "temperature": 1.0,
-                    "top_p": 0.95,
-                    "max_output_tokens": 512,
-                },
-            )
-        )
+        # Try a list of candidate Gemini model names in case the default is unavailable.
+        candidate_models = [
+            config.gemini_model,
+            "gemini-1.5-flash",
+            "gemini-1.5",
+            "gemini-1.2",
+        ]
+        last_exc: Exception | None = None
+        for candidate in candidate_models:
+            if not candidate:
+                continue
+            try:
+                logger.info("Attempting Gemini model: %s", candidate)
+                model = genai.GenerativeModel(candidate)
+                raw_text = _response_text(
+                    model.generate_content(
+                        prompt,
+                        generation_config={
+                            "temperature": 1.0,
+                            "top_p": 0.95,
+                            "max_output_tokens": 512,
+                        },
+                    )
+                )
+                brief = _parse_brief_json(raw_text)
+                if brief is not None:
+                    return brief
+                logger.warning("Gemini response from model %s was not valid JSON.", candidate)
+                # Retry once with a stricter instruction
+                raw_text = _response_text(
+                    model.generate_content(
+                        prompt + " Output valid JSON only. No leading or trailing text.",
+                        generation_config={
+                            "temperature": 0.8,
+                            "top_p": 0.9,
+                            "max_output_tokens": 512,
+                        },
+                    )
+                )
+                brief = _parse_brief_json(raw_text)
+                if brief is not None:
+                    return brief
+            except Exception as exc:  # try the next model
+                logger.warning("Gemini model %s failed: %s", candidate, exc)
+                last_exc = exc
 
-        brief = _parse_brief_json(raw_text)
-        if brief is not None:
-            return brief
-
-        logger.warning("Gemini response was not valid JSON. Retrying once with a stricter prompt.")
-        raw_text = _response_text(
-            model.generate_content(
-                prompt + " Output valid JSON only. No leading or trailing text.",
-                generation_config={
-                    "temperature": 0.8,
-                    "top_p": 0.9,
-                    "max_output_tokens": 512,
-                },
-            )
-        )
-        brief = _parse_brief_json(raw_text)
-        if brief is None:
-            logger.error("Failed to parse Gemini JSON after retry.")
-        return brief
-    except Exception as exc:  # fallback when Gemini model/API isn't available
-        logger.warning("Gemini generation failed (%s). Falling back to local briefs.", exc)
+        # If we reach here, all model attempts failed or returned invalid JSON.
+        if last_exc:
+            err_path = config.workspace / "gemini_error.log"
+            err_text = f"Last Gemini exception for models {candidate_models}: {last_exc!r}\n"
+            try:
+                err_path.write_text(err_text, encoding="utf-8")
+                logger.info("Wrote Gemini diagnostic to %s", err_path)
+            except Exception:
+                logger.exception("Failed to write Gemini diagnostic file.")
+        logger.warning("Gemini generation failed or returned invalid JSON. Falling back to local briefs.")
         # local pool of short, safe briefs
         pool = [
             ContentBrief(
