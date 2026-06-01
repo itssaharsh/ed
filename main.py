@@ -210,9 +210,11 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                 logger.info("Wrote Gemini diagnostic to %s", err_path)
             except Exception:
                 logger.exception("Failed to write Gemini diagnostic file.")
-        logger.warning("Gemini generation failed or returned invalid JSON. Falling back to local briefs.")
-        # local pool of short, safe briefs
-        pool = [
+    except Exception as exc:
+        logger.warning("Gemini generation failed (%s). Falling back to local briefs.", exc)
+
+    # local pool of short, safe briefs
+    pool = [
             ContentBrief(
                 title="The Moon's Missing Water",
                 description="#space #fact #shorts The Moon hides water in cold, shadowed craters — and yes, it's inconveniently chill.",
@@ -244,7 +246,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                 search_query="person",
             ),
         ]
-        return random.choice(pool)
+    return random.choice(pool)
 
 
 def generate_voice_and_captions(config: PipelineConfig, script: str) -> tuple[Path, Path] | tuple[None, None]:
