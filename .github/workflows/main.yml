@@ -2,7 +2,9 @@ name: Generate and Upload YouTube Shorts
 
 on:
   schedule:
-    - cron: "0 */2 * * *"
+    # Run approximately every hour (24 times/day). If you prefer ~20/day, we can adjust
+    # to a custom set of cron entries — hourly is a simple, reliable default.
+    - cron: "0 * * * *"
   workflow_dispatch:
 
 jobs:

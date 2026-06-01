@@ -137,9 +137,10 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
         model = genai.GenerativeModel(config.gemini_model)
 
         prompt = (
-            "You are generating a short-form YouTube Shorts concept. "
+            "You are generating a short-form YouTube Shorts concept in a comedic, slightly dark-humor tone. "
             "Return only strict JSON with exactly these keys: title, description, script, search_query. "
-            "Rules: title must be catchy and factual; description must include hashtags; script must be a spoken narration of 50 words or fewer; search_query must be a simple 1-2 word background-footage query. "
+            "Rules: title must be catchy; description must include hashtags and match the dark-comedy tone; script must be a spoken narration of about 30 seconds (aim for ~40-50 words); search_query must be a simple 1-2 word background-footage query. "
+            "Prefer funny, surprising twists or punchlines while keeping content safe for a general audience. "
             "Pick one subject at random from fascinating historical facts, psychological tricks, or space facts. "
             "Do not include markdown, code fences, or extra commentary. "
             "The JSON values must all be strings."
