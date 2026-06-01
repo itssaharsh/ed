@@ -21,7 +21,17 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-from moviepy.editor import AudioFileClip, CompositeVideoClip, ImageClip, VideoFileClip, vfx
+from moviepy.editor import (
+    AudioFileClip,
+    CompositeVideoClip,
+    CompositeAudioClip,
+    ImageClip,
+    VideoFileClip,
+    vfx,
+)
+from moviepy.audio.AudioClip import AudioClip, AudioArrayClip
+import moviepy.audio.fx.all as afx
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
 # Pillow renamed ANTIALIAS to Resampling.LANCZOS in newer versions; provide
@@ -137,10 +147,10 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
         model = genai.GenerativeModel(config.gemini_model)
 
         prompt = (
-            "You are generating a short-form YouTube Shorts concept in a comedic, slightly dark-humor tone. "
+            "You are generating a short-form YouTube Shorts concept in a funny, punchline-driven dark-comedy tone. "
             "Return only strict JSON with exactly these keys: title, description, script, search_query. "
-            "Rules: title must be catchy; description must include hashtags and match the dark-comedy tone; script must be a spoken narration of about 30 seconds (aim for ~40-50 words); search_query must be a simple 1-2 word background-footage query. "
-            "Prefer funny, surprising twists or punchlines while keeping content safe for a general audience. "
+            "Rules: title must be catchy; description must include hashtags and match the comedic dark tone; script must be a spoken narration of about 30-40 seconds (aim for ~60-80 words) with a clear setup and punchline; search_query must be a simple 1-2 word background-footage query. "
+            "Make the script obviously humorous and surprising, using relatable, concise jokes that land quickly. Avoid profanity and unsafe content. "
             "Pick one subject at random from fascinating historical facts, psychological tricks, or space facts. "
             "Do not include markdown, code fences, or extra commentary. "
             "The JSON values must all be strings."
@@ -269,6 +279,25 @@ def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Pa
         background_clip = VideoFileClip(str(background_path))
         subtitle_cues = _parse_srt_file(srt_path)
         subtitle_clips = [_subtitle_clip_for_cue(cue) for cue in subtitle_cues]
+
+        # Ensure a minimum runtime for the short. If TTS output is very short,
+        # pad with silence so the final video is at least 30 seconds long.
+        min_duration = 30.0
+        if audio_clip.duration < min_duration:
+            silence_duration = min_duration - audio_clip.duration
+            fps = getattr(audio_clip, "fps", 44100)
+            nchannels = getattr(audio_clip, "nchannels", 1)
+            n_samples = int(silence_duration * fps)
+            if nchannels == 1:
+                arr = np.zeros((n_samples, 1), dtype=float)
+            else:
+                arr = np.zeros((n_samples, nchannels), dtype=float)
+            silence_clip = AudioArrayClip(arr, fps)
+            composite_audio = CompositeAudioClip([
+                audio_clip.set_start(0),
+                silence_clip.set_start(audio_clip.duration),
+            ])
+            audio_clip = composite_audio
 
         try:
             target_duration = float(audio_clip.duration)
@@ -402,7 +431,7 @@ def _parse_brief_json(raw_text: str) -> ContentBrief | None:
     if not title or not description or not script or not search_query:
         return None
 
-    script = _limit_words(script, 50)
+    script = _limit_words(script, 90)
     description = _ensure_shorts_hashtag(description)
     return ContentBrief(title=title, description=description, script=script, search_query=search_query)
 
