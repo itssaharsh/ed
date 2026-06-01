@@ -14,8 +14,8 @@ jobs:
       PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
       YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
       YOUTUBE_CREDENTIALS_JSON: ${{ secrets.YOUTUBE_CREDENTIALS_JSON }}
-      YOUTUBE_CLIENT_SECRETS_PATH: ${{ github.workspace }}/youtube_shorts_pipeline/client_secrets.json
-      YOUTUBE_CREDENTIALS_PATH: ${{ github.workspace }}/youtube_shorts_pipeline/credentials.json
+      YOUTUBE_CLIENT_SECRETS_PATH: ${{ github.workspace }}/client_secrets.json
+      YOUTUBE_CREDENTIALS_PATH: ${{ github.workspace }}/credentials.json
 
     steps:
       - name: Check out repository
