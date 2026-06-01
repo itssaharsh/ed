@@ -5,7 +5,7 @@ on:
     # RUN EVERY 4 HOURS (6 times a day). 
     # YouTube strictly limits free API uploads to 6 videos per day.
     # Running more often will cause hidden 403 quota errors.
-    - cron: '0 */1 * * *'
+    - cron: '17 */1 * * *'
   workflow_dispatch: # Allows you to trigger a run manually from the GitHub UI
 
 jobs:
