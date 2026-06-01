@@ -8,6 +8,7 @@ import random
 import re
 import sys
 import textwrap
+import time
 from dataclasses import dataclass
 from datetime import timedelta
 from pathlib import Path
@@ -205,18 +206,21 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             "The JSON values must all be strings."
         )
 
-        candidate_models = [
+        # De-duplicate candidate models to prevent burning API quota on retries
+        base_models = [
             config.gemini_model,
             "gemini-2.5-flash",
             "gemini-2.0-flash",
             "gemini-1.5-flash",
             "gemini-1.5-pro"
         ]
+        candidate_models = []
+        for m in base_models:
+            if m and m not in candidate_models:
+                candidate_models.append(m)
         
         last_exc: Exception | None = None
         for candidate in candidate_models:
-            if not candidate:
-                continue
             try:
                 logger.info("Attempting Gemini model: %s", candidate)
                 
@@ -227,12 +231,18 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                     
                 logger.warning("Gemini response from model %s was not valid JSON.", candidate)
                 
+                # Small sleep to prevent instantly blowing the 5/min rate limit
+                time.sleep(2)
+                
                 # Retry once with a stricter instruction
                 strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
                 raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
                 brief = _parse_brief_json(raw_text)
                 if brief is not None:
                     return brief
+                
+                # Sleep again before moving to the next model fallback to save quota
+                time.sleep(2)
                     
             except Exception as exc:  # try the next model
                 logger.warning("Gemini model %s failed: %s", candidate, exc)
@@ -556,7 +566,7 @@ def _parse_brief_json(raw_text: str) -> ContentBrief | None:
         if start != -1 and end != -1 and end >= start:
             cleaned = raw_text[start:end+1]
         else:
-            logger.warning("No JSON object found in raw text.")
+            logger.warning("No JSON object found in raw text. Raw output was: %s", repr(raw_text[:200]))
             return None
         
         payload = json.loads(cleaned)
