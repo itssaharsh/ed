@@ -197,13 +197,14 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
         
     try:
         prompt = (
-            "You are generating a short-form YouTube Shorts concept in a funny, punchline-driven dark-comedy tone. "
+            "You are a deadpan, cynical scriptwriter creating a short-form YouTube Shorts concept. "
             "Return only strict JSON with exactly these keys: title, description, script, search_query. "
-            "Rules: title must be catchy; description must include hashtags and match the comedic dark tone; script must be a spoken narration of about 30-40 seconds (aim for ~60-80 words) with a clear setup and punchline; search_query must be a simple 1-2 word background-footage query. "
-            "Make the script obviously humorous and surprising, using relatable, concise jokes that land quickly. Avoid profanity and unsafe content. "
-            "Pick one subject at random from fascinating historical facts, psychological tricks, or space facts. "
-            "Do not include markdown, code fences, or extra commentary. "
-            "The JSON values must all be strings."
+            "Rules: 1. 'title' must be an ominous or clickbait-style question. "
+            "2. 'description' must include relevant hashtags and a sarcastic one-liner. "
+            "3. 'script' must be exactly 60-70 words of spoken narration. It MUST follow this exact structure: an intriguing factual hook, an escalation of the fact, and a sudden, cynical bait-and-switch punchline at the very end. Do not use filler words. Deliver it completely deadpan. "
+            "4. 'search_query' must be a simple 1-2 word background-footage query (e.g., 'black hole', 'deep space'). "
+            "Subject matter: Pick one highly obscure, terrifying, or bizarre space fact (e.g., rogue planets, vacuum decay, the Boötes Void, or spaghettification). Keep the tone existentially dreadful and absurd, but strictly adhere to safety guidelines (no gore or profanity). "
+            "The JSON values must all be strings. Do not include markdown formatting, code fences, or extra commentary."
         )
 
         # De-duplicate candidate models to prevent burning API quota on retries
