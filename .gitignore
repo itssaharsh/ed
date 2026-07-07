@@ -1,5 +1,6 @@
 credentials.json
 client_secrets.json
+_creds_compact.txt
 YOUTUBE_CREDENTIALS_JSON
 YOUTUBE_CLIENT_SECRETS_JSON
 .venv/
