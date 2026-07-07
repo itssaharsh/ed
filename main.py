@@ -68,6 +68,31 @@ DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"  # Updated to newer default
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
+# NASA Image and Video Library: free, no API key, actual space/science footage
+NASA_VIDEO_SEARCH_URL = "https://images-api.nasa.gov/search"
+
+# When Pexels returns nothing for a niche term, try these broader fallbacks in order.
+# Keys are lowercase substrings to match against the search_query.
+PEXELS_QUERY_FALLBACKS: dict[str, list[str]] = {
+    "magnetar":      ["neutron star", "deep space", "galaxy"],
+    "vacuum":        ["cosmos", "deep space", "universe"],
+    "bootes":        ["deep space", "galaxy", "stars"],
+    "void":          ["deep space", "galaxy", "stars"],
+    "spaghett":      ["black hole", "space", "galaxy"],
+    "attractor":     ["galaxy", "cosmos", "universe"],
+    "cannibali":     ["galaxy", "cosmos", "stars"],
+    "heat death":    ["cosmos", "universe", "stars"],
+    "cosmic string": ["cosmos", "space", "galaxy"],
+    "rogue planet":  ["space", "galaxy", "stars"],
+    "neutron":       ["deep space", "galaxy", "stars"],
+    "sagittarius":   ["black hole", "milky way", "galaxy"],
+    "dark matter":   ["galaxy", "cosmos", "universe"],
+    "pulsar":        ["neutron star", "space", "galaxy"],
+    "quasar":        ["galaxy", "deep space", "cosmos"],
+    "wormhole":      ["space", "galaxy", "cosmos"],
+}
+# Generic Pexels fallback chain if nothing matches above
+PEXELS_DEFAULT_FALLBACKS = ["deep space", "galaxy", "stars", "cosmos", "space"]
 
 
 @dataclass(frozen=True)
@@ -378,41 +403,176 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
     srt_path.write_text(submaker.get_srt(), encoding="utf-8")
 
 
-def download_background_video(config: PipelineConfig, search_query: str) -> Path | None:
-    if not config.pexels_api_key:
-        logger.error("PEXELS_API_KEY is missing. Skipping background video download.")
-        return None
+def _download_nasa_video(search_query: str, output_path: Path) -> bool:
+    """Search the NASA Image and Video Library and download the best matching video.
 
+    This API is completely free, requires no API key, and returns actual NASA
+    footage of space phenomena (nebulae, black holes, galaxies, etc.).
+    Returns True if a video was successfully downloaded, False otherwise.
+    """
     try:
-        headers = {"Authorization": config.pexels_api_key}
-        response = requests.get(
+        resp = requests.get(
+            NASA_VIDEO_SEARCH_URL,
+            params={"q": search_query, "media_type": "video"},
+            timeout=20,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("collection", {}).get("items", [])
+        if not items:
+            logger.info("NASA search returned 0 results for '%s'.", search_query)
+            return False
+
+        # Try up to 5 items before giving up
+        for item in items[:5]:
+            asset_manifest_url = item.get("href", "")
+            if not asset_manifest_url:
+                continue
+            try:
+                manifest_resp = requests.get(asset_manifest_url, timeout=15)
+                manifest_resp.raise_for_status()
+                asset_urls: list[str] = manifest_resp.json()
+
+                # Prefer mobile/medium MP4 — large NASA originals can be multi-GB
+                mp4_urls = [u for u in asset_urls if u.lower().endswith(".mp4")]
+                if not mp4_urls:
+                    continue
+
+                # Tier preference: mobile < small < medium < large < orig
+                # We want medium/small to balance quality vs download time on CI
+                def _tier_score(url: str) -> int:
+                    u = url.lower()
+                    if "~mobile" in u:  return 5
+                    if "~small"  in u:  return 4
+                    if "~medium" in u:  return 3
+                    if "~large"  in u:  return 2
+                    if "~orig"   in u:  return 1
+                    return 0
+
+                mp4_urls.sort(key=_tier_score, reverse=True)
+                download_url = mp4_urls[0]
+
+                logger.info("Downloading NASA video for query '%s': %s", search_query, download_url)
+                with requests.get(download_url, stream=True, timeout=180) as vr:
+                    vr.raise_for_status()
+                    with output_path.open("wb") as f:
+                        for chunk in vr.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                logger.info("NASA video downloaded: %s", output_path)
+                return True
+
+            except Exception as exc:
+                logger.debug("NASA asset '%s' failed: %s", asset_manifest_url, exc)
+                continue
+
+        logger.info("No downloadable NASA video found for '%s'.", search_query)
+        return False
+
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("NASA video search failed for '%s': %s", search_query, exc)
+        return False
+
+
+def _pexels_query_chain(search_query: str) -> list[str]:
+    """Build an ordered list of queries to try on Pexels for a given search_query.
+
+    The first entry is the exact query from Gemini.  Subsequent entries are
+    progressively broader fallbacks so that even niche terms like 'magnetar'
+    or 'vacuum decay' eventually resolve to footage that exists on Pexels.
+    """
+    q_lower = search_query.lower()
+    # Find matching fallback chain from the keyword table
+    for keyword, fallbacks in PEXELS_QUERY_FALLBACKS.items():
+        if keyword in q_lower:
+            # Start with the original query, then the specific fallbacks
+            chain = [search_query] + fallbacks
+            # Always end with the generic fallbacks
+            for f in PEXELS_DEFAULT_FALLBACKS:
+                if f not in chain:
+                    chain.append(f)
+            return chain
+    # No specific match — just use original + generic chain
+    chain = [search_query] + [
+        f for f in PEXELS_DEFAULT_FALLBACKS if f != search_query
+    ]
+    return chain
+
+
+def _pexels_download_for_query(
+    query: str,
+    api_key: str,
+    output_path: Path,
+) -> bool:
+    """Try downloading a portrait video from Pexels for *query*.
+    Returns True on success.
+    """
+    try:
+        headers = {"Authorization": api_key}
+        resp = requests.get(
             PEXELS_VIDEO_SEARCH_URL,
             headers=headers,
-            params={"query": search_query, "orientation": "portrait", "per_page": 10},
-            timeout=60,
+            params={"query": query, "orientation": "portrait", "per_page": 15},
+            timeout=30,
         )
-        response.raise_for_status()
-        payload = response.json()
-        videos = payload.get("videos", [])
+        resp.raise_for_status()
+        videos = resp.json().get("videos", [])
         if not videos:
-            raise PipelineError(f"No Pexels video results for query: {search_query}")
+            logger.info("Pexels returned 0 results for '%s'.", query)
+            return False
 
-        selected_video = videos[0]
-        video_url = _best_mp4_link(selected_video.get("video_files", []))
-        if not video_url:
-            raise PipelineError("No MP4 video file found in the first Pexels result.")
+        # Try candidates in order; the best portrait clip scores highest
+        for video in videos[:5]:
+            video_url = _best_mp4_link(video.get("video_files", []))
+            if not video_url:
+                continue
+            logger.info("Downloading Pexels video for query '%s'.", query)
+            try:
+                with requests.get(video_url, stream=True, timeout=180) as vr:
+                    vr.raise_for_status()
+                    with output_path.open("wb") as f:
+                        for chunk in vr.iter_content(chunk_size=1024 * 1024):
+                            if chunk:
+                                f.write(chunk)
+                return True
+            except Exception as exc:
+                logger.debug("Pexels download for '%s' failed: %s", video_url, exc)
+                continue
 
-        logger.info("Downloading background video for query '%s'.", search_query)
-        with requests.get(video_url, stream=True, timeout=120) as video_response:
-            video_response.raise_for_status()
-            with config.output_background.open("wb") as output_file:
-                for chunk in video_response.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        output_file.write(chunk)
-        return config.output_background
+        return False
     except Exception as exc:  # noqa: BLE001
-        logger.error("Background video download failed: %s", exc)
+        logger.debug("Pexels search for '%s' failed: %s", query, exc)
+        return False
+
+
+def download_background_video(config: PipelineConfig, search_query: str) -> Path | None:
+    """Download the best available background video for *search_query*.
+
+    Strategy (in order):
+    1. NASA Image and Video Library — free, no key, actual space/science footage
+       that directly matches the script topic (black holes, nebulae, etc.).
+    2. Pexels — with a query-broadening fallback chain so niche terms like
+       'magnetar' eventually resolve to footage that exists in the library.
+
+    Returns the path to the downloaded file, or None on total failure.
+    """
+    # ── Step 1: NASA (primary, no key required) ───────────────────────────────
+    if _download_nasa_video(search_query, config.output_background):
+        return config.output_background
+
+    logger.info("NASA video unavailable; falling back to Pexels.")
+
+    # ── Step 2: Pexels with fallback query chain ──────────────────────────────
+    if not config.pexels_api_key:
+        logger.error("PEXELS_API_KEY is missing and NASA also failed. Cannot get background video.")
         return None
+
+    for query in _pexels_query_chain(search_query):
+        if _pexels_download_for_query(query, config.pexels_api_key, config.output_background):
+            return config.output_background
+        logger.info("Pexels query '%s' produced no usable video; trying next fallback.", query)
+
+    logger.error("All video sources exhausted for query '%s'.", search_query)
+    return None
 
 
 def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Path, srt_path: Path) -> Path | None:
