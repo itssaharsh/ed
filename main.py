@@ -196,15 +196,34 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
         return None
         
     try:
+        # CRITICAL: The prompt is written as a raw JSON instruction so that even the
+        # deprecated google-generativeai SDK (which ignores response_mime_type) is
+        # forced to output a bare JSON object — no markdown fences, no prose.
         prompt = (
-            "You are a deadpan, cynical scriptwriter creating a short-form YouTube Shorts concept. "
-            "Return only strict JSON with exactly these keys: title, description, script, search_query. "
-            "Rules: 1. 'title' must be an ominous or clickbait-style question. "
-            "2. 'description' must include relevant hashtags and a sarcastic one-liner. "
-            "3. 'script' must be exactly 60-70 words of spoken narration. It MUST follow this exact structure: an intriguing factual hook, an escalation of the fact, and a sudden, cynical bait-and-switch punchline at the very end. Do not use filler words. Deliver it completely deadpan. "
-            "4. 'search_query' must be a simple 1-2 word background-footage query (e.g., 'black hole', 'deep space'). "
-            "Subject matter: Pick one highly obscure, terrifying, or bizarre space fact (e.g., rogue planets, vacuum decay, the Boötes Void, or spaghettification). Keep the tone existentially dreadful and absurd, but strictly adhere to safety guidelines (no gore or profanity). "
-            "The JSON values must all be strings. Do not include markdown formatting, code fences, or extra commentary."
+            "OUTPUT ONLY A SINGLE RAW JSON OBJECT. "
+            "DO NOT wrap in markdown code fences. DO NOT add any text before or after the JSON. "
+            "The very first character of your response MUST be '{' and the very last MUST be '}'. "
+            "Use exactly these four string keys: title, description, script, search_query.\n\n"
+            "RULES:\n"
+            "- title: a punchy, ominous clickbait question under 80 characters. Include '#shorts' at the end.\n"
+            "- description: 1 sarcastic sentence + 6-8 relevant hashtags including #shorts #space #facts.\n"
+            "- script: EXACTLY 65-75 words of deadpan spoken narration. "
+            "Structure: (1) a jaw-dropping space fact stated as fact, "
+            "(2) an escalation that makes it worse, "
+            "(3) a cynical punchline twist at the very end. "
+            "No filler words. Pure deadpan. Short punchy sentences. "
+            "Sound like a documentary narrator who has given up on humanity.\n"
+            "- search_query: 1-2 English words for stock video search (e.g. 'black hole', 'galaxy', 'nebula', 'cosmos').\n\n"
+            "SUBJECT: Pick one genuinely terrifying, mind-bending space fact from this list or invent a new one: "
+            "vacuum decay, the Bootes Void, rogue planets, neutron star density, "
+            "magnetar magnetic fields, Sagittarius A* tidal forces, heat death of the universe, "
+            "the Great Attractor, galactic cannibalism, or cosmic strings. "
+            "Keep tone existentially dreadful. No gore, no profanity.\n\n"
+            "EXAMPLE OUTPUT (follow this exact structure):\n"
+            '{"title": "What If Space Just... Deleted You? #shorts", '
+            '"description": "Turns out the universe has no refund policy. #shorts #space #facts #scaryspace #cosmichorror #mindblown #science #universe", '
+            '"script": "Somewhere in the universe a magnetar spins sixty times per second. Its magnetic field is so strong it can rearrange the atoms in your body from halfway across the solar system. Not destroy them. Rearrange them. Like a cosmic blender that forgot to ask. The good news is you would not feel it. The bad news is everything else would.", '
+            '"search_query": "magnetar"}'
         )
 
         # De-duplicate candidate models to prevent burning API quota on retries
@@ -597,22 +616,41 @@ def _try_openai_prompt(api_key: str, prompt: str) -> str | None:
 
 
 def _parse_brief_json(raw_text: str) -> ContentBrief | None:
+    """Parse a ContentBrief from Gemini output.
+
+    Gemini (especially the deprecated SDK) sometimes wraps JSON in markdown
+    code fences like ```json\n{...}\n```.  It may also emit a flat object
+    without outer braces when the response_mime_type hint is ignored.
+    This function handles all three cases robustly.
+    """
     if not raw_text:
         return None
 
     try:
-        # Find the boundaries of the JSON object to ignore markdown or conversational padding
-        start = raw_text.find('{')
-        end = raw_text.rfind('}')
+        # Step 1: strip markdown code fences (``` or ```json)
+        stripped = re.sub(r"^```[a-zA-Z]*\s*", "", raw_text.strip(), flags=re.MULTILINE)
+        stripped = re.sub(r"```\s*$", "", stripped.strip(), flags=re.MULTILINE).strip()
+
+        # Step 2: find JSON object boundaries
+        start = stripped.find('{')
+        end = stripped.rfind('}')
+
         if start != -1 and end != -1 and end >= start:
-            cleaned = raw_text[start:end+1]
+            # Normal case: JSON object found
+            cleaned = stripped[start:end + 1]
+        elif start == -1 and end == -1:
+            # Degenerate case: Gemini emitted flat key-value pairs without {}
+            # e.g. just:  "title": "...",\n  "description": "..."\n  ...
+            # Wrap them and try to parse
+            cleaned = '{' + stripped + '}'
+            logger.warning("Gemini returned flat JSON (no braces); wrapped automatically. Preview: %s", repr(raw_text[:120]))
         else:
             logger.warning("No JSON object found in raw text. Raw output was: %s", repr(raw_text[:200]))
             return None
-        
+
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        logger.error("JSON parsing failed: %s. Raw text: %s", exc, raw_text)
+        logger.error("JSON parsing failed: %s. Raw text: %s", exc, raw_text[:300])
         return None
 
     if not isinstance(payload, dict):
@@ -676,6 +714,14 @@ def _ensure_shorts_tag(title: str) -> str:
 
 
 def _best_mp4_link(video_files: Iterable[dict[str, Any]]) -> str | None:
+    """Select the best MP4 link, strongly preferring portrait (tall) orientation
+    since we are producing a 9:16 YouTube Short.
+
+    Scoring:
+      - Portrait clips (height > width) get a large bonus so they are always
+        preferred over landscape clips of the same resolution.
+      - Within each orientation tier we pick the highest resolution * bitrate.
+    """
     candidates = []
     for item in video_files:
         if not isinstance(item, dict):
@@ -689,7 +735,11 @@ def _best_mp4_link(video_files: Iterable[dict[str, Any]]) -> str | None:
         width = int(item.get("width") or 0)
         height = int(item.get("height") or 0)
         bitrate = int(item.get("bitrate") or 0)
-        candidates.append(((width * height, bitrate), link))
+        # Heavy bonus for portrait clips — a 1080x1920 clip is ideal; landscape
+        # clips at any resolution score lower than any portrait clip.
+        portrait_bonus = 10_000_000_000 if height > width else 0
+        score = portrait_bonus + (width * height) + bitrate
+        candidates.append((score, link))
     if not candidates:
         return None
     candidates.sort(key=lambda entry: entry[0], reverse=True)
@@ -728,49 +778,113 @@ def _srt_timestamp_to_seconds(timestamp: str) -> float:
     return float(total) + (int(milliseconds) / 1000.0)
 
 
+# Caption panel dimensions (bottom-third of a 1080x1920 frame)
+_CAPTION_PANEL_W = TARGET_WIDTH          # 1080
+_CAPTION_PANEL_H = 480                   # tall enough for 3 wrapped lines
+_CAPTION_FONT_SIZE = 72
+_CAPTION_PADDING_X = 48
+_CAPTION_PADDING_Y = 30
+_CAPTION_BG_COLOR = (0, 0, 0, 170)       # semi-transparent black pill
+_CAPTION_BG_RADIUS = 28                  # pill corner radius
+_CAPTION_TEXT_COLOR = (255, 255, 255, 255)
+_CAPTION_STROKE_COLOR = (0, 0, 0, 255)
+_CAPTION_STROKE_WIDTH = 3
+
+# How far up from the bottom of the full frame the caption panel sits (px)
+_CAPTION_BOTTOM_OFFSET = 220
+
+
 def _subtitle_clip_for_cue(cue: SrtCue) -> ImageClip:
     image_path = _render_caption_image(cue.text)
     clip = ImageClip(str(image_path)).set_start(cue.start).set_duration(max(cue.end - cue.start, 0.2))
-    return clip.set_position(("center", "center"))
+    # Pin to bottom-third: y is measured from top of the full 1920px frame
+    y_pos = TARGET_HEIGHT - _CAPTION_PANEL_H - _CAPTION_BOTTOM_OFFSET
+    return clip.set_position(("center", y_pos))
+
+
+def _draw_rounded_rect(
+    draw: ImageDraw.ImageDraw,
+    xy: tuple[int, int, int, int],
+    radius: int,
+    fill: tuple[int, int, int, int],
+) -> None:
+    """Draw a rounded rectangle (pill) on an RGBA canvas."""
+    x0, y0, x1, y1 = xy
+    # Four corner circles
+    draw.ellipse((x0, y0, x0 + 2 * radius, y0 + 2 * radius), fill=fill)
+    draw.ellipse((x1 - 2 * radius, y0, x1, y0 + 2 * radius), fill=fill)
+    draw.ellipse((x0, y1 - 2 * radius, x0 + 2 * radius, y1), fill=fill)
+    draw.ellipse((x1 - 2 * radius, y1 - 2 * radius, x1, y1), fill=fill)
+    # Fill body
+    draw.rectangle((x0 + radius, y0, x1 - radius, y1), fill=fill)
+    draw.rectangle((x0, y0 + radius, x1, y1 - radius), fill=fill)
 
 
 def _render_caption_image(text: str) -> Path:
+    """Render a single caption cue as a PNG with a TikTok-style pill background.
+
+    Layout (all measurements in px, canvas = 1080 x _CAPTION_PANEL_H):
+      - Semi-transparent rounded-rect pill behind the text
+      - White text with black stroke for readability on any background
+      - Text is horizontally centered, vertically centered within the pill
+    """
     temp_dir = Path(__file__).resolve().parent / "_caption_cache"
     temp_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"caption_{abs(hash(text))}.png"
     output_path = temp_dir / file_name
 
-    image = Image.new("RGBA", (TARGET_WIDTH, 520), (0, 0, 0, 0))
+    font = _load_caption_font(_CAPTION_FONT_SIZE)
+
+    # -- Measure wrapped text on a temporary canvas ---------------------------
+    probe = Image.new("RGBA", (1, 1))
+    probe_draw = ImageDraw.Draw(probe)
+    wrapped_text = _wrap_text(probe_draw, text, font, max_width=_CAPTION_PANEL_W - 2 * _CAPTION_PADDING_X)
+    bbox = probe_draw.multiline_textbbox(
+        (0, 0), wrapped_text, font=font, spacing=10, stroke_width=_CAPTION_STROKE_WIDTH
+    )
+    text_w = bbox[2] - bbox[0]
+    text_h = bbox[3] - bbox[1]
+
+    # -- Pill dimensions ------------------------------------------------------
+    pill_w = min(text_w + 2 * _CAPTION_PADDING_X, _CAPTION_PANEL_W - 40)
+    pill_h = text_h + 2 * _CAPTION_PADDING_Y
+    pill_x0 = (_CAPTION_PANEL_W - pill_w) // 2
+    pill_y0 = (_CAPTION_PANEL_H - pill_h) // 2
+    pill_x1 = pill_x0 + pill_w
+    pill_y1 = pill_y0 + pill_h
+
+    # -- Render ---------------------------------------------------------------
+    image = Image.new("RGBA", (_CAPTION_PANEL_W, _CAPTION_PANEL_H), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
-    font = _load_caption_font(64)
 
-    wrapped_text = _wrap_text(draw, text, font, max_width=920)
-    bbox = draw.multiline_textbbox((0, 0), wrapped_text, font=font, spacing=14, stroke_width=4)
-    text_width = bbox[2] - bbox[0]
-    text_height = bbox[3] - bbox[1]
-    x = (TARGET_WIDTH - text_width) / 2
-    y = (520 - text_height) / 2
+    # Pill background
+    _draw_rounded_rect(draw, (pill_x0, pill_y0, pill_x1, pill_y1), _CAPTION_BG_RADIUS, _CAPTION_BG_COLOR)
 
-    # Subtle shadow for readability.
+    # Text position: centered inside pill
+    text_x = (_CAPTION_PANEL_W - text_w) / 2
+    text_y = pill_y0 + _CAPTION_PADDING_Y
+
+    # Drop shadow (offset +3, +3, slightly transparent)
     draw.multiline_text(
-        (x + 4, y + 4),
+        (text_x + 3, text_y + 3),
         wrapped_text,
         font=font,
-        fill=(0, 0, 0, 160),
-        spacing=14,
+        fill=(0, 0, 0, 140),
+        spacing=10,
         align="center",
-        stroke_width=0,
     )
+    # Main text with stroke
     draw.multiline_text(
-        (x, y),
+        (text_x, text_y),
         wrapped_text,
         font=font,
-        fill=(255, 255, 255, 255),
-        spacing=14,
+        fill=_CAPTION_TEXT_COLOR,
+        spacing=10,
         align="center",
-        stroke_width=4,
-        stroke_fill=(0, 0, 0, 255),
+        stroke_width=_CAPTION_STROKE_WIDTH,
+        stroke_fill=_CAPTION_STROKE_COLOR,
     )
+
     image.save(output_path)
     return output_path
 
