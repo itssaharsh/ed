@@ -139,8 +139,8 @@ def main() -> int:
         if final_video_path is None:
             return 0
 
-        upload_to_youtube(config, final_video_path, brief.title, brief.description)
-        return 0
+        upload_ok = upload_to_youtube(config, final_video_path, brief.title, brief.description)
+        return 0 if upload_ok else 1
     except Exception as exc:  # noqa: BLE001
         logger.exception("Unhandled pipeline error: %s", exc)
         return 0
@@ -460,20 +460,50 @@ def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Pa
         return None
 
 
-def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, description: str) -> None:
+def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, description: str) -> bool:
+    """Upload *video_path* to YouTube. Returns True on success, False on any failure."""
     if not config.youtube_credentials.exists():
         logger.error("YouTube credentials file is missing at %s. Skipping upload.", config.youtube_credentials)
-        return
+        return False
 
     try:
         credentials = Credentials.from_authorized_user_file(str(config.youtube_credentials), scopes=[YOUTUBE_UPLOAD_SCOPE])
+
         if credentials.expired and credentials.refresh_token:
             logger.info("YouTube token expired. Refreshing token...")
-            credentials.refresh(Request())
+            try:
+                credentials.refresh(Request())
+            except Exception as refresh_exc:  # noqa: BLE001
+                err_str = str(refresh_exc)
+                # `invalid_grant` means the refresh token has been permanently revoked by Google.
+                # This is NOT a transient error — it cannot be fixed by retrying.
+                # Common causes:
+                #   1. OAuth consent screen is in "Testing" status → tokens expire after 7 days.
+                #      Fix: publish the app to "Production" in Google Cloud Console, then
+                #           re-run get_credentials.py and update the YOUTUBE_CREDENTIALS_JSON secret.
+                #   2. Token has not been used for > 6 months (Google sliding-window policy).
+                #   3. More than 50 tokens issued for the same OAuth client (oldest are auto-revoked).
+                if "invalid_grant" in err_str:
+                    logger.error(
+                        "YouTube OAuth refresh_token has been permanently revoked (invalid_grant). "
+                        "This is a fatal, non-retryable error. "
+                        "ACTION REQUIRED: Re-run get_credentials.py locally to obtain a fresh refresh_token, "
+                        "then update the YOUTUBE_CREDENTIALS_JSON GitHub secret. "
+                        "If your OAuth app is in 'Testing' status, publish it to 'Production' first "
+                        "(Google Cloud Console > APIs & Services > OAuth consent screen). "
+                        "Raw error: %s",
+                        refresh_exc,
+                    )
+                else:
+                    logger.error("YouTube token refresh failed with unexpected error: %s", refresh_exc)
+                return False
+
             new_creds_json = credentials.to_json()
             config.youtube_credentials.write_text(new_creds_json, encoding="utf-8")
-            
-            # Write the new token to GITHUB_OUTPUT so the workflow file can capture and save it permanently
+
+            # Write the new token to GITHUB_OUTPUT so the workflow file can capture and save it permanently.
+            # NOTE: This block must remain AFTER a successful refresh (not inside the try above)
+            # so that invalid_grant failures never reach it.
             github_output = os.environ.get("GITHUB_OUTPUT")
             if github_output:
                 with open(github_output, "a", encoding="utf-8") as f:
@@ -504,20 +534,20 @@ def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, desc
                 _, response = request.next_chunk()
                 if response and "id" in response:
                     logger.info("Uploaded YouTube Short with video id: %s", response["id"])
-                    return
+                    return True
             except HttpError as exc:
                 if exc.resp.status in {500, 502, 503, 504} and retries < 5:
                     retries += 1
                     sleep_seconds = random.uniform(1.0, 2.0 ** retries)
                     logger.warning("Transient YouTube error %s. Retrying in %.1f seconds.", exc.resp.status, sleep_seconds)
-                    import time
-
                     time.sleep(sleep_seconds)
                     continue
                 raise
         logger.error("YouTube upload completed without a usable response payload.")
+        return False
     except Exception as exc:  # noqa: BLE001
         logger.error("YouTube upload failed: %s", exc)
+        return False
 
 
 def _response_text(response: Any) -> str:

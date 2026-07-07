@@ -2,10 +2,11 @@ name: YouTube Shorts Generator
 
 on:
   schedule:
-    # RUN EVERY 4 HOURS (6 times a day). 
+    # RUN EVERY 4 HOURS (6 times a day).
     # YouTube strictly limits free API uploads to 6 videos per day.
     # Running more often will cause hidden 403 quota errors.
-    - cron: '17 */1 * * *'
+    # NOTE: cron '17 */4 * * *' = minute 17 of every 4th hour (0,4,8,12,16,20).
+    - cron: '17 */4 * * *'
   workflow_dispatch: # Allows you to trigger a run manually from the GitHub UI
 
 jobs:
@@ -42,6 +43,8 @@ jobs:
           export YOUTUBE_CREDENTIALS_PATH=credentials.json
           
           python main.py
+          # Propagate the Python exit code so the Actions job turns red on upload failure
+          exit $?
 
       - name: Permanently Update YouTube Credentials Secret
         # ONLY run this step if main.py successfully generated and passed a new token
