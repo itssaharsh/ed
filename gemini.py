@@ -132,6 +132,18 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
         types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
         types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
     ]
+    
+    response_schema = {
+        "type": "OBJECT",
+        "properties": {
+            "title": {"type": "STRING"},
+            "description": {"type": "STRING"},
+            "script": {"type": "STRING"},
+            "search_query": {"type": "STRING"}
+        },
+        "required": ["title", "description", "script", "search_query"]
+    }
+
     response = client.models.generate_content(
         model=model_name,
         contents=prompt,
@@ -140,6 +152,7 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             top_p=0.95 if temperature == 1.0 else 0.9,
             max_output_tokens=2048,
             response_mime_type="application/json",
+            response_schema=response_schema,
             safety_settings=safety_settings
         )
     )
@@ -172,12 +185,12 @@ def _parse_brief_json(raw_text: str, category_id: str = "space") -> ContentBrief
             cleaned = '{' + stripped + '}'
             logger.warning("Gemini returned flat JSON (no braces); wrapped automatically. Preview: %s", repr(raw_text[:120]))
         else:
-            logger.warning("No JSON object found in raw text. Raw output was: %s", repr(raw_text[:200]))
+            logger.warning("No JSON object found in raw text. Raw output was: %s", repr(raw_text))
             return None
 
         payload = json.loads(cleaned)
     except json.JSONDecodeError as exc:
-        logger.error("JSON parsing failed: %s. Raw text: %s", exc, raw_text[:300])
+        logger.error("JSON parsing failed: %s. Raw text: %s", exc, raw_text)
         return None
 
     if not isinstance(payload, dict):
