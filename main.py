@@ -671,11 +671,11 @@ def _stretch_script_to_target(script: str, *, target_seconds: float = 30.0, wpm:
         return script
 
     fillers = [
-        "Also, here's a tiny twist you didn't expect.",
-        "Strangely, that actually makes it worse — and funnier.",
-        "Which is to say: history has a dark sense of humor.",
-        "And yes, that detail makes the whole story deliciously awkward.",
-        "Quick aside: don't try this at home unless you enjoy surprises.",
+        "But wait, it actually gets worse.",
+        "I know, right? Completely unhinged.",
+        "So that's a thing now.",
+        "Just let that sink in for a second.",
+        "Honestly, you can't even make this up.",
     ]
     i = 0
     while len(words) < target_words:
@@ -686,7 +686,15 @@ def _stretch_script_to_target(script: str, *, target_seconds: float = 30.0, wpm:
 
 async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt_path: Path) -> None:
     audio_path.parent.mkdir(parents=True, exist_ok=True)
-    communicate = edge_tts.Communicate(script, voice, boundary="WordBoundary")
+    
+    # Strip out sound effects (asterisks) and robotic punctuation (ellipses, dashes, brackets)
+    clean_script = re.sub(r'\*.*?\*', '', script)
+    clean_script = re.sub(r'[\.\-—_…]{2,}', ',', clean_script)
+    clean_script = re.sub(r'["\'\(\)\[\]]', '', clean_script)
+    clean_script = re.sub(r'\s+', ' ', clean_script).strip()
+
+    # Increase rate to sound more conversational and less like a robotic reading
+    communicate = edge_tts.Communicate(clean_script, voice, rate="+15%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
 
     with audio_path.open("wb") as audio_file:
