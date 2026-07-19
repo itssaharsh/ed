@@ -38,7 +38,7 @@ _CONTENT_CATEGORIES: list[tuple[str, int, str, list[str], str]] = [
         20,
         "dark psychology, manipulation tactics, cognitive biases exploited by corporations, persuasion science",
         ["shadow", "silhouette", "crowd", "person thinking", "abstract mind", "psychology"],
-        "#shorts #psychology #darkpsychology #mindcontrol #facts #manipulation #mindblown",
+        "#shorts #psychology #psychologyfacts #behavior #facts #manipulation #mindblown",
     ),
     (
         "dark_history",
