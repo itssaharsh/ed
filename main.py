@@ -748,12 +748,9 @@ def _download_nasa_video(search_query: str, output_path: Path) -> bool:
                 download_url = mp4_urls[0]
 
                 logger.info("Downloading NASA video for query '%s': %s", search_query, download_url)
-                with requests.get(download_url, stream=True, timeout=180) as vr:
-                    vr.raise_for_status()
-                    with output_path.open("wb") as f:
-                        for chunk in vr.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                f.write(chunk)
+                vr = requests.get(download_url, timeout=180)
+                vr.raise_for_status()
+                output_path.write_bytes(vr.content)
                 logger.info("NASA video downloaded: %s", output_path)
                 return True
 
@@ -861,12 +858,9 @@ def _pexels_download_for_query(
                 continue
             logger.info("Downloading Pexels video for query '%s'.", query)
             try:
-                with requests.get(video_url, stream=True, timeout=180) as vr:
-                    vr.raise_for_status()
-                    with output_path.open("wb") as f:
-                        for chunk in vr.iter_content(chunk_size=1024 * 1024):
-                            if chunk:
-                                f.write(chunk)
+                vr = requests.get(video_url, timeout=180)
+                vr.raise_for_status()
+                output_path.write_bytes(vr.content)
                 return True
             except Exception as exc:
                 logger.debug("Pexels download for '%s' failed: %s", video_url, exc)
@@ -908,14 +902,11 @@ def _extract_visual_keywords(brief: "ContentBrief") -> list[str]:
 
 
 def _download_clip(url: str, output_path: Path) -> bool:
-    """Stream-download a single video URL to *output_path*. Returns True on success."""
+    """Download a single video URL to *output_path*. Returns True on success."""
     try:
-        with requests.get(url, stream=True, timeout=180) as vr:
-            vr.raise_for_status()
-            with output_path.open("wb") as f:
-                for chunk in vr.iter_content(chunk_size=1024 * 1024):
-                    if chunk:
-                        f.write(chunk)
+        vr = requests.get(url, timeout=180)
+        vr.raise_for_status()
+        output_path.write_bytes(vr.content)
         return True
     except Exception as exc:  # noqa: BLE001
         logger.debug("Clip download failed (%s): %s", url, exc)
