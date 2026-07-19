@@ -12,27 +12,34 @@ def main() -> int:
     try:
         brief = generate_content_brief(config)
         if brief is None:
-            return 0
+            logger.error("Failed to generate content brief.")
+            sys.exit(1)
 
         audio_path, srt_path = generate_voice_and_captions(config, brief.script)
         if audio_path is None or srt_path is None:
-            return 0
+            logger.error("Failed to generate audio and captions.")
+            sys.exit(1)
 
         # Note: assemble_video expects a single video path or a list of paths.
         # Since we use multiple clips, we pass the list.
         background_paths = download_background_clips(config, brief)
         if not background_paths:
-            return 0
+            logger.error("Failed to download background clips.")
+            sys.exit(1)
 
         final_video_path = assemble_video(config, background_paths, audio_path, srt_path)
         if final_video_path is None:
-            return 0
+            logger.error("Failed to assemble video.")
+            sys.exit(1)
 
         upload_ok = upload_to_youtube(config, final_video_path, brief.title, brief.description)
-        return 0 if upload_ok else 1
+        if not upload_ok:
+            logger.error("Failed to upload to YouTube.")
+            sys.exit(1)
+        return 0
     except Exception as exc:
         logger.exception("Unhandled pipeline error: %s", exc)
-        return 0
+        sys.exit(1)
 
 if __name__ == "__main__":
     sys.exit(main())

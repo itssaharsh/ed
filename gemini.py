@@ -69,18 +69,6 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
         types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
         types.SafetySetting(category=types.HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT, threshold=types.HarmBlockThreshold.BLOCK_NONE),
     ]
-    
-    response_schema = {
-        "type": "OBJECT",
-        "properties": {
-            "title": {"type": "STRING"},
-            "description": {"type": "STRING"},
-            "script": {"type": "STRING"},
-            "search_query": {"type": "STRING"}
-        },
-        "required": ["title", "description", "script", "search_query"]
-    }
-
     response = client.models.generate_content(
         model=model_name,
         contents=prompt,
@@ -88,8 +76,6 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             temperature=temperature,
             top_p=0.95 if temperature == 1.0 else 0.9,
             max_output_tokens=2048,
-            response_mime_type="application/json",
-            response_schema=response_schema,
             safety_settings=safety_settings
         )
     )
