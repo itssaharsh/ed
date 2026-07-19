@@ -378,7 +378,3 @@ def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, 
     lines.append(current_line)
     return "\n".join(lines)
 
-
-if __name__ == "__main__":
-    sys.exit(main())
-
