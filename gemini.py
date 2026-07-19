@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 
 from config import PipelineConfig, ContentBrief, _CONTENT_CATEGORIES, logger
-from utils import _limit_words, _ensure_shorts_hashtag, _ensure_shorts_tag, _normalize_search_query
+from utils import _limit_words, _ensure_shorts_hashtag, _ensure_shorts_tag, _normalize_search_query, _normalize_text
 
 def _pick_category() -> tuple[str, str, list[str], str]:
     """Weighted-random category selection.
