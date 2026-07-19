@@ -3,6 +3,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+import random
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
@@ -10,6 +12,7 @@ from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 
 from config import PipelineConfig, YOUTUBE_UPLOAD_SCOPE, logger
+from utils import _ensure_shorts_tag, _ensure_shorts_hashtag
 
 def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, description: str) -> bool:
     """Upload *video_path* to YouTube. Returns True on success, False on any failure."""
