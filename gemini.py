@@ -24,68 +24,7 @@ def _pick_category() -> tuple[str, str, list[str], str]:
 
 
 def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
-    """Build a category-specific Gemini prompt using the research-backed viral formula:
-
-    4-Beat structure (proven for 70%+ completion rate):
-      1. HOOK   — Contradicts common belief or states shocking fact in <1.5s of audio
-      2. CONTEXT — Why you should care (no fluff, 1-2 sentences)
-      3. PAYOFF  — The disturbing/surprising depth of the fact
-      4. LOOP    — Final sentence loops back to the opening for replay bait
-
-    Target: 55-70 words = ~22-28 seconds at 150 WPM (the proven Shorts sweet spot).
-    """
-    category_instructions = {
-        "finance": (
-            "Topic: Pick ONE shocking personal finance or wealth psychology fact. "
-            "Examples: how banks profit from your savings account, a cognitive bias that keeps people poor, "
-            "a tax trick only the wealthy know, how inflation secretly transfers wealth upward, "
-            "why the stock market is rigged against retail investors, or how compound interest works against debt holders. "
-            "Hook style: Start with 'The bank is...' or 'Right now...' or 'Every time you...' — immediate, personal, alarming. "
-            "Punchline: End with a cynical observation about who benefits from the system. "
-            "Loop: Last sentence should echo or contradict the first sentence so it loops naturally."
-        ),
-        "ai_tech": (
-            "Topic: Pick ONE genuinely disturbing AI or tech fact. "
-            "Examples: how recommendation algorithms detect depression before you do, "
-            "how your phone microphone data is sold, how AI can predict your vote, "
-            "how facial recognition is being used without your consent, "
-            "how large language models encode bias, or how social media maximizes addiction not connection. "
-            "Hook style: Start with 'Right now, AI...' or 'Your phone already knows...' or 'The algorithm...' "
-            "Punchline: End with what this means for human autonomy or privacy. "
-            "Loop: Last sentence should mirror the opening to encourage replays."
-        ),
-        "dark_psychology": (
-            "Topic: Pick ONE specific, real psychological manipulation technique. "
-            "Examples: the foot-in-the-door technique used by subscription services, "
-            "how casinos use variable reward schedules to create addiction, "
-            "how dark patterns in app design exploit loss aversion, "
-            "how social proof is manufactured, or how anchoring is used in pricing. "
-            "Hook style: Start with 'This trick is being used on you right now.' or 'You have already fallen for this today.' "
-            "Punchline: Name the industry or company exploiting this technique. "
-            "Loop: End with a line that makes the viewer want to watch again to catch what they missed."
-        ),
-        "dark_history": (
-            "Topic: Pick ONE genuinely disturbing, lesser-known historical fact. "
-            "Examples: a forgotten atrocity, a government experiment on citizens, "
-            "a covered-up disaster, a historical figure's hidden crimes, "
-            "or a suppressed invention/discovery. "
-            "Hook style: Start with 'This actually happened.' or 'In [year]...' or 'A government once...' "
-            "Punchline: Connect it to something that still affects us today, or note it was never taught in school. "
-            "Loop: End with a question or statement that mirrors the opening."
-        ),
-        "nature_horror": (
-            "Topic: Pick ONE genuinely disturbing fact about a real animal, parasite, or biological phenomenon. "
-            "Examples: a parasite that controls its host's brain, a deep sea creature that hunts with bioluminescence, "
-            "an animal that digests its prey alive, how cordyceps fungi work, "
-            "or the extreme conditions life can survive. "
-            "Hook style: Start with the disturbing fact immediately, no preamble. Deadpan tone. "
-            "Punchline: End with a twist about how this relates to human biology or everyday life. "
-            "Loop: Final sentence creates urgency to rewatch."
-        ),
-    }
-
-    cat_instruction = category_instructions.get(category_id, category_instructions["dark_psychology"])
-
+    """Build the final text prompt for Gemini."""
     return (
         "OUTPUT ONLY A SINGLE RAW JSON OBJECT. "
         "DO NOT wrap in markdown code fences. DO NOT add any text before or after the JSON. "
@@ -108,8 +47,6 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         "- search_query: 1-2 English words describing a VISUAL that exists in stock video libraries. "
         "Use concrete, filmable nouns (e.g. 'money', 'server room', 'ocean', 'crowd', 'ruins'). "
         "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
-
-        f"SPECIFIC INSTRUCTIONS:\n{cat_instruction}\n\n"
 
         "EXAMPLE OUTPUT (exact JSON structure required):\n"
         '{"title": "Your Savings Account Is a Lie #shorts", '
