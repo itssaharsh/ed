@@ -14,8 +14,23 @@ from moviepy import (
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
-from config import PipelineConfig, SrtCue, logger
+from config import PipelineConfig, SrtCue, TARGET_WIDTH, TARGET_HEIGHT, logger
 from audio import _parse_srt_file
+
+# Caption panel dimensions
+_CAPTION_PANEL_W = TARGET_WIDTH          # 1080
+_CAPTION_PANEL_H = 480                   # tall enough for 3 wrapped lines
+_CAPTION_FONT_SIZE = 72
+_CAPTION_PADDING_X = 48
+_CAPTION_PADDING_Y = 30
+_CAPTION_BG_COLOR = (0, 0, 0, 170)       # semi-transparent black pill
+_CAPTION_BG_RADIUS = 28                  # pill corner radius
+_CAPTION_TEXT_COLOR = (255, 255, 255, 255)
+_CAPTION_STROKE_COLOR = (0, 0, 0, 255)
+_CAPTION_STROKE_WIDTH = 3
+
+# How far up from the bottom of the full frame the caption panel sits (px)
+_CAPTION_BOTTOM_OFFSET = 220
 
 def _ken_burns_zoom(
     clip: "VideoFileClip",
