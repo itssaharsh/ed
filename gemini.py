@@ -159,40 +159,55 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
 
         last_exc: Exception | None = None
         for candidate in candidate_models:
-            try:
-                logger.info("Attempting Gemini model: %s", candidate)
+            attempts = 0
+            while attempts < 2:
+                attempts += 1
+                try:
+                    logger.info("Attempting Gemini model: %s (attempt %d/2)", candidate, attempts)
 
-                raw_text = _call_gemini(config.gemini_api_key, candidate, prompt, temperature=1.0)
-                brief = _parse_brief_json(raw_text, category_id)
-                if brief is not None:
-                    return brief
+                    raw_text = _call_gemini(config.gemini_api_key, candidate, prompt, temperature=1.0)
+                    brief = _parse_brief_json(raw_text, category_id)
+                    if brief is not None:
+                        return brief
 
-                logger.warning("Gemini response from model %s was not valid JSON.", candidate)
-                time.sleep(2)
+                    logger.warning("Gemini response from model %s was not valid JSON.", candidate)
+                    time.sleep(2)
 
-                # Retry once with a stricter instruction
-                strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
-                raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
-                brief = _parse_brief_json(raw_text, category_id)
-                if brief is not None:
-                    return brief
+                    # Retry once with a stricter instruction
+                    strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
+                    raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
+                    brief = _parse_brief_json(raw_text, category_id)
+                    if brief is not None:
+                        return brief
 
-                time.sleep(2)
+                    time.sleep(2)
+                    break # if it failed parsing twice, moving to next model is better
+                except Exception as exc:
+                    last_exc = exc
+                    err_str = str(exc)
+                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                        if attempts < 2:
+                            logger.warning("Gemini model %s hit rate limit (429). Sleeping 60s before retry.", candidate)
+                            time.sleep(60)
+                            continue
+                        else:
+                            logger.warning("Gemini model %s rate limit persisted. Moving to next model.", candidate)
+                            break
+                    elif "404" in err_str or "NOT_FOUND" in err_str:
+                        logger.warning("Gemini model %s not found (404). Skipping.", candidate)
+                        break
+                    else:
+                        logger.warning("Gemini model %s failed: %s", candidate, exc)
+                        break
 
-            except Exception as exc:  # try the next model
-                logger.warning("Gemini model %s failed: %s", candidate, exc)
-                last_exc = exc
-
-        # If we reach here, all model attempts failed or returned invalid JSON.
-        if last_exc:
-            err_path = config.workspace / "gemini_error.log"
-            err_text = f"Last Gemini exception for models {candidate_models}: {last_exc!r}\n"
-            try:
-                err_path.write_text(err_text, encoding="utf-8")
-                logger.info("Wrote Gemini diagnostic to %s", err_path)
-            except Exception:
-                logger.exception("Failed to write Gemini diagnostic file.")
-
+        logger.error("All Gemini models failed. Last exception: %s", last_exc)
+        
+        # Dump diagnostic info
+        err_log = Path("gemini_error.log")
+        err_log.write_text(f"Last exception: {last_exc}\n", encoding="utf-8")
+        logger.info("Wrote Gemini diagnostic to %s", err_log.resolve())
+        
+        return None
     except Exception as exc:
-        logger.error("Gemini generation failed: %s", exc)
+        logger.exception("Fatal error generating content brief: %s", exc)
         return None
