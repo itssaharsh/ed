@@ -1206,7 +1206,6 @@ def assemble_video(
                 audio_codec="aac",
                 threads=4,
                 preset="medium",
-                verbose=False,
                 logger=None,
             )
         finally:
