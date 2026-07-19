@@ -31,16 +31,17 @@ from google.oauth2.credentials import Credentials
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
-from moviepy.editor import (
+from moviepy import (
     AudioFileClip,
     CompositeVideoClip,
     CompositeAudioClip,
     ImageClip,
     VideoFileClip,
     vfx,
+    AudioClip,
+    AudioArrayClip,
+    afx,
 )
-from moviepy.audio.AudioClip import AudioClip, AudioArrayClip
-import moviepy.audio.fx.all as afx
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 
@@ -63,7 +64,7 @@ logger = logging.getLogger(__name__)
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
-DEFAULT_VOICE = "en-US-GuyNeural"
+DEFAULT_VOICE = "en-US-BrianNeural"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"  # Updated to newer default
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -353,10 +354,9 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         "  BEAT 1 (Hook, ~10 words): Contradicts common belief OR states shocking fact. MUST be "
         "completable in under 1.5 seconds of audio. No 'Hey guys' or slow intros.\n"
         "  BEAT 2 (Context, ~15 words): Why this matters to the viewer personally. One sentence.\n"
-        "  BEAT 3 (Payoff, ~30 words): The full disturbing depth. Short punchy sentences. Deadpan tone.\n"
+        "  BEAT 3 (Payoff, ~30 words): The full disturbing depth. Short punchy sentences. Sarcastic, comedic tone.\n"
         "  BEAT 4 (Loop, ~10 words): Final sentence mirrors or contradicts Beat 1 to encourage replays.\n"
-        "  NO filler words. NO 'And so...' or 'In conclusion'. Deliver like a documentarian who "
-        "has completely given up on humanity.\n"
+        "  NO filler words. NO 'And so...' or 'In conclusion'. Deliver with a very dark or funny angle like a cynical stand-up comedian.\n"
         "- search_query: 1-2 English words describing a VISUAL that exists in stock video libraries. "
         "Use concrete, filmable nouns (e.g. 'money', 'server room', 'ocean', 'crowd', 'ruins'). "
         "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
@@ -794,6 +794,44 @@ def _pexels_query_chain(search_query: str) -> list[str]:
     return chain
 
 
+def _pexels_fetch_url(
+    query: str,
+    api_key: str,
+    exclude_urls: set[str] | None = None,
+) -> str | None:
+    """Search Pexels and return the best MP4 download URL for *query*.
+
+    Does NOT download the file — purely returns a URL so the caller can
+    download it to whatever path it chooses.
+    `exclude_urls` prevents returning a URL we have already used for a
+    previous clip, ensuring each segment is visually unique.
+    """
+    exclude_urls = exclude_urls or set()
+    try:
+        headers = {"Authorization": api_key}
+        resp = requests.get(
+            PEXELS_VIDEO_SEARCH_URL,
+            headers=headers,
+            params={"query": query, "orientation": "portrait", "per_page": 15},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        videos = resp.json().get("videos", [])
+        if not videos:
+            logger.info("Pexels returned 0 results for '%s'.", query)
+            return None
+
+        for video in videos[:10]:
+            url = _best_mp4_link(video.get("video_files", []))
+            if url and url not in exclude_urls:
+                return url
+
+        return None
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Pexels search for '%s' failed: %s", query, exc)
+        return None
+
+
 def _pexels_download_for_query(
     query: str,
     api_key: str,
@@ -840,26 +878,116 @@ def _pexels_download_for_query(
         return False
 
 
-def download_background_video(config: PipelineConfig, search_query: str) -> Path | None:
-    """Download the best available background video for *search_query*.
+def _extract_visual_keywords(brief: "ContentBrief") -> list[str]:
+    """Derive 2-3 distinct Pexels-friendly search queries from a ContentBrief.
 
-    Strategy (in order):
-    1. NASA Image and Video Library — free, no key, actual space/science footage
-       that directly matches the script topic (black holes, nebulae, etc.).
-    2. Pexels — with a query-broadening fallback chain so niche terms like
-       'magnetar' eventually resolve to footage that exists in the library.
-
-    Returns the path to the downloaded file, or None on total failure.
+    The first is always the brief's own search_query (most specific).
+    The others are pulled from the category's video_search_terms table so
+    each background segment looks visually different from the last.
     """
-    # ── Step 1: NASA (primary, no key required) ───────────────────────────────
+    primary = brief.search_query
+    # Pull the video_search_terms for this category from _CONTENT_CATEGORIES
+    category_terms: list[str] = []
+    for cat_id, _, _, terms, _ in _CONTENT_CATEGORIES:
+        if cat_id == brief.category:
+            category_terms = terms[:]
+            break
+
+    # Build a de-duplicated list: primary first, then different category terms
+    queries: list[str] = [primary]
+    for term in category_terms:
+        if term.lower() != primary.lower() and len(queries) < 3:
+            queries.append(term)
+
+    # If we still need more, add from the default fallback list
+    for term in PEXELS_DEFAULT_FALLBACKS:
+        if term.lower() not in {q.lower() for q in queries} and len(queries) < 3:
+            queries.append(term)
+
+    return queries
+
+
+def _download_clip(url: str, output_path: Path) -> bool:
+    """Stream-download a single video URL to *output_path*. Returns True on success."""
+    try:
+        with requests.get(url, stream=True, timeout=180) as vr:
+            vr.raise_for_status()
+            with output_path.open("wb") as f:
+                for chunk in vr.iter_content(chunk_size=1024 * 1024):
+                    if chunk:
+                        f.write(chunk)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("Clip download failed (%s): %s", url, exc)
+        return False
+
+
+def download_background_clips(config: "PipelineConfig", brief: "ContentBrief") -> list[Path]:
+    """Download 2-3 UNIQUE video clips that together cover the full video duration.
+
+    Each clip uses a different visual keyword so the background changes
+    as the script progresses, creating a dynamic feel rather than a looping
+    single clip.
+
+    Returns a list of downloaded Paths (at least 1, up to 3). Returns empty
+    list only if all sources fail completely.
+    """
+    queries = _extract_visual_keywords(brief)
+    workspace = config.workspace
+    clips: list[Path] = []
+    used_urls: set[str] = set()
+
+    for idx, query in enumerate(queries):
+        clip_path = workspace / f"bg_clip_{idx}.mp4"
+
+        # ── Try NASA first (only for space/nature queries) ──────────────────────
+        space_categories = {"nature_horror"}  # NASA has good deep-sea content too
+        # For finance/tech/psychology/history we skip NASA (it won't have relevant footage)
+        is_space_ish = brief.category in space_categories or "space" in query.lower() or "galaxy" in query.lower()
+        if is_space_ish:
+            if _download_nasa_video(query, clip_path):
+                clips.append(clip_path)
+                logger.info("Clip %d/%d: NASA '%s' -> %s", idx + 1, len(queries), query, clip_path.name)
+                continue
+
+        # ── Pexels ────────────────────────────────────────────────────────
+        if not config.pexels_api_key:
+            logger.warning("PEXELS_API_KEY missing; cannot fetch clip %d.", idx + 1)
+            continue
+
+        # Walk the query fallback chain until we find a URL we haven't used yet
+        chain = _pexels_query_chain(query)
+        fetched = False
+        for fallback_query in chain:
+            url = _pexels_fetch_url(fallback_query, config.pexels_api_key, exclude_urls=used_urls)
+            if not url:
+                continue
+            if _download_clip(url, clip_path):
+                used_urls.add(url)
+                clips.append(clip_path)
+                logger.info("Clip %d/%d: Pexels '%s' -> %s", idx + 1, len(queries), fallback_query, clip_path.name)
+                fetched = True
+                break
+
+        if not fetched:
+            logger.warning("Could not download clip %d for query '%s'; skipping.", idx + 1, query)
+
+    if not clips:
+        logger.error("All clip downloads failed for brief '%s'.", brief.title)
+
+    return clips
+
+
+def download_background_video(config: "PipelineConfig", search_query: str) -> Path | None:
+    """Legacy single-clip download kept for backward compatibility.
+    Prefer download_background_clips() for new code.
+    """
+    # Try NASA first, then Pexels fallback chain
     if _download_nasa_video(search_query, config.output_background):
         return config.output_background
 
-    logger.info("NASA video unavailable; falling back to Pexels.")
-
-    # ── Step 2: Pexels with fallback query chain ──────────────────────────────
     if not config.pexels_api_key:
-        logger.error("PEXELS_API_KEY is missing and NASA also failed. Cannot get background video.")
+        logger.error("PEXELS_API_KEY is missing and NASA also failed.")
         return None
 
     for query in _pexels_query_chain(search_query):
@@ -871,48 +999,205 @@ def download_background_video(config: PipelineConfig, search_query: str) -> Path
     return None
 
 
-def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Path, srt_path: Path) -> Path | None:
+def _ken_burns_zoom(
+    clip: "VideoFileClip",
+    target_w: int,
+    target_h: int,
+    zoom_start: float = 1.0,
+    zoom_end: float = 1.08,
+) -> "VideoFileClip":
+    """Apply a slow Ken Burns zoom-in/out effect to *clip*.
+
+    The clip is first scaled up slightly to give room to zoom without
+    revealing the edges, then a per-frame crop walks from zoom_start to
+    zoom_end (or vice-versa for zoom-out).  This turns even a 5-second
+    static clip into an animated, cinematic-feeling segment.
+
+    Args:
+        clip:        The source VideoFileClip (already loaded).
+        target_w:    Final crop width in pixels.
+        target_h:    Final crop height in pixels.
+        zoom_start:  Scale factor at the start of the clip (1.0 = exact fit).
+        zoom_end:    Scale factor at the end   of the clip.
+    """
+    # Over-scale so we have pixels to zoom into
+    max_zoom = max(zoom_start, zoom_end)
+    base_scale = max(target_w / clip.w, target_h / clip.h) * max_zoom
+    scaled = clip.resized(base_scale)
+
+    duration = clip.duration
+
+    def _make_frame(t: float):
+        # Linear interpolation between zoom_start and zoom_end
+        progress = t / duration if duration > 0 else 0.0
+        scale = zoom_start + (zoom_end - zoom_start) * progress
+
+        # Current view size (in the over-scaled frame)
+        view_w = target_w / scale * max_zoom
+        view_h = target_h / scale * max_zoom
+
+        # Clamp to frame bounds
+        view_w = min(view_w, scaled.w)
+        view_h = min(view_h, scaled.h)
+
+        x1 = (scaled.w - view_w) / 2
+        y1 = (scaled.h - view_h) / 2
+
+        frame = scaled.get_frame(t)
+        # Crop manually
+        import numpy as np
+        x1i, y1i = int(x1), int(y1)
+        cropped = frame[y1i: y1i + int(view_h), x1i: x1i + int(view_w)]
+        # Resize back to target
+        from PIL import Image as PILImage
+        img = PILImage.fromarray(cropped).resize((target_w, target_h), PILImage.LANCZOS)
+        return np.array(img)
+
+    from moviepy import VideoClip
+    result = VideoClip(_make_frame, duration=duration)
+    result = result.with_fps(clip.fps or 30)
+    if clip.audio:
+        result = result.with_audio(clip.audio)
+    return result
+
+
+def _process_clip_segment(
+    clip_path: Path,
+    target_w: int,
+    target_h: int,
+    segment_duration: float,
+    zoom_direction: str = "in",
+) -> "VideoFileClip | None":
+    """Load, trim, crop, and Ken-Burns-zoom a single background clip.
+
+    Returns a clip of exactly *segment_duration* seconds at *target_w x target_h*,
+    or None if the file cannot be loaded.
+    """
+    try:
+        raw = VideoFileClip(str(clip_path))
+
+        # Trim to segment_duration (loop only if the source is shorter than 3s;
+        # otherwise just take the first segment_duration seconds of unique footage).
+        if raw.duration < 3.0:
+            # Very short clip — loop it just once to reach minimum
+            from moviepy import vfx
+            raw = raw.with_effects([vfx.Loop(duration=max(segment_duration, raw.duration * 2))])
+
+        segment = raw.subclipped(0, min(segment_duration, raw.duration))
+
+        # If the clip is still shorter than needed, pad with freeze-frame
+        if segment.duration < segment_duration:
+            freeze = segment.to_ImageClip(t=segment.duration - 0.05)
+            freeze = freeze.with_duration(segment_duration - segment.duration)
+            from moviepy import concatenate_videoclips
+            segment = concatenate_videoclips([segment, freeze])
+
+        # Scale + center-crop to portrait
+        scale = max(target_w / segment.w, target_h / segment.h) * 1.12  # 12% headroom for zoom
+        segment = segment.resized(scale)
+        from moviepy import vfx
+        segment = segment.with_effects([vfx.Crop(width=target_w, height=target_h,
+                                                 x_center=segment.w / 2, y_center=segment.h / 2)])
+
+        # Ken Burns direction alternates so adjacent clips feel different
+        zoom_s, zoom_e = (1.0, 1.06) if zoom_direction == "in" else (1.06, 1.0)
+        segment = _ken_burns_zoom(segment, target_w, target_h, zoom_s, zoom_e)
+
+        return segment
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Could not process clip segment '%s': %s", clip_path.name, exc)
+        return None
+
+
+def assemble_video(
+    config: "PipelineConfig",
+    background_paths: "list[Path] | Path",
+    audio_path: Path,
+    srt_path: Path,
+) -> Path | None:
+    """Assemble the final Short from multiple background clips + audio + captions.
+
+    Each background clip gets an equal share of the total duration and has its
+    own Ken Burns zoom direction (alternating in/out) so the video feels
+    dynamic without any looping or frame repetition.
+    """
+    # Normalise to list
+    if isinstance(background_paths, Path):
+        background_paths = [background_paths]
+
+    if not background_paths:
+        logger.error("No background clips provided to assemble_video.")
+        return None
+
     try:
         audio_clip = AudioFileClip(str(audio_path))
-        background_clip = VideoFileClip(str(background_path))
         subtitle_cues = _parse_srt_file(srt_path)
         subtitle_clips = [_subtitle_clip_for_cue(cue) for cue in subtitle_cues]
 
-        # Ensure a minimum runtime for the short. If TTS output is very short,
-        # pad with silence so the final video is at least 30 seconds long
-        # (research-backed sweet spot: 15-35s for maximum Shorts completion rate).
+        # ── Determine total video duration ───────────────────────────────────
         min_duration = 30.0
-        if audio_clip.duration < min_duration:
-            silence_duration = min_duration - audio_clip.duration
-            fps = getattr(audio_clip, "fps", 44100)
-            nchannels = getattr(audio_clip, "nchannels", 1)
-            n_samples = int(silence_duration * fps)
-            if nchannels == 1:
-                arr = np.zeros((n_samples, 1), dtype=float)
-            else:
-                arr = np.zeros((n_samples, nchannels), dtype=float)
-            silence_clip = AudioArrayClip(arr, fps)
-            composite_audio = CompositeAudioClip([
-                audio_clip.set_start(0),
-                silence_clip.set_start(audio_clip.duration),
-            ])
-            audio_clip = composite_audio
+        target_duration = max(min_duration, float(audio_clip.duration))
 
+        # Pad audio with silence if needed
+        if audio_clip.duration < target_duration:
+            silence_duration = target_duration - audio_clip.duration
+            fps_a = getattr(audio_clip, "fps", 44100)
+            nch = getattr(audio_clip, "nchannels", 1)
+            n_samples = int(silence_duration * fps_a)
+            arr = np.zeros((n_samples, nch if nch > 1 else 1), dtype=float)
+            silence_clip = AudioArrayClip(arr, fps_a)
+            audio_clip = CompositeAudioClip([
+                audio_clip.with_start(0),
+                silence_clip.with_start(audio_clip.duration),
+            ])
+
+        # ── Split duration equally across all clips ───────────────────────────
+        n_clips = len(background_paths)
+        seg_duration = target_duration / n_clips
+        zoom_dirs = ["in", "out", "in", "out"]  # alternating
+
+        segments: list = []
+        raw_clips: list = []
         try:
-            target_duration = max(min_duration, float(audio_clip.duration))
-            scale = max(TARGET_WIDTH / background_clip.w, TARGET_HEIGHT / background_clip.h)
-            background = background_clip.resize(scale)
-            background = background.fx(
-                vfx.crop,
-                width=TARGET_WIDTH,
-                height=TARGET_HEIGHT,
-                x_center=background.w / 2,
-                y_center=background.h / 2,
-            )
-            background = background.fx(vfx.loop, duration=target_duration).subclip(0, target_duration)
-            background = background.set_audio(audio_clip)
+            for i, clip_path in enumerate(background_paths):
+                seg = _process_clip_segment(
+                    clip_path,
+                    TARGET_WIDTH,
+                    TARGET_HEIGHT,
+                    seg_duration,
+                    zoom_direction=zoom_dirs[i % len(zoom_dirs)],
+                )
+                if seg is not None:
+                    segments.append(seg)
+                    raw_clips.append(seg)  # track for cleanup
+
+            if not segments:
+                logger.error("All clip segments failed to process.")
+                return None
+
+            # If some clips failed, stretch the good ones to fill total duration
+            if len(segments) < n_clips:
+                each = target_duration / len(segments)
+                new_segs = []
+                for i, seg in enumerate(segments):
+                    # Reprocess with corrected duration
+                    corrected = _process_clip_segment(
+                        background_paths[i], TARGET_WIDTH, TARGET_HEIGHT,
+                        each, zoom_dirs[i % len(zoom_dirs)]
+                    )
+                    new_segs.append(corrected if corrected is not None else seg)
+                segments = new_segs
+
+            # Concatenate all segments
+            from moviepy import concatenate_videoclips
+            background = concatenate_videoclips(segments, method="compose")
+            # Ensure exact duration (floating-point drift)
+            background = background.subclipped(0, target_duration)
+            background = background.with_audio(audio_clip)
+
             composite = CompositeVideoClip([background, *subtitle_clips], size=(TARGET_WIDTH, TARGET_HEIGHT))
-            composite = composite.set_duration(target_duration).set_audio(audio_clip)
+            composite = composite.with_duration(target_duration).with_audio(audio_clip)
+
             config.output_final.parent.mkdir(parents=True, exist_ok=True)
             composite.write_videofile(
                 str(config.output_final),
@@ -926,11 +1211,17 @@ def assemble_video(config: PipelineConfig, background_path: Path, audio_path: Pa
             )
         finally:
             for clip in subtitle_clips:
-                clip.close()
-            background_clip.close()
-            audio_clip.close()
+                try: clip.close()
+                except Exception: pass
+            for clip in raw_clips:
+                try: clip.close()
+                except Exception: pass
+            try: audio_clip.close()
+            except Exception: pass
+
         logger.info("Rendered final video: %s", config.output_final)
         return config.output_final
+
     except Exception as exc:  # noqa: BLE001
         logger.error("Video assembly failed: %s", exc)
         return None
@@ -1251,10 +1542,10 @@ _CAPTION_BOTTOM_OFFSET = 220
 
 def _subtitle_clip_for_cue(cue: SrtCue) -> ImageClip:
     image_path = _render_caption_image(cue.text)
-    clip = ImageClip(str(image_path)).set_start(cue.start).set_duration(max(cue.end - cue.start, 0.2))
+    clip = ImageClip(str(image_path)).with_start(cue.start).with_duration(max(cue.end - cue.start, 0.2))
     # Pin to bottom-third: y is measured from top of the full 1920px frame
     y_pos = TARGET_HEIGHT - _CAPTION_PANEL_H - _CAPTION_BOTTOM_OFFSET
-    return clip.set_position(("center", y_pos))
+    return clip.with_position(("center", y_pos))
 
 
 def _draw_rounded_rect(
