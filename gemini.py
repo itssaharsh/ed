@@ -40,29 +40,26 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         f"CATEGORY: {category_desc}\n\n"
 
         "FIELD RULES:\n"
-        "- title: Under 70 chars. Starts with a hook question or alarming statement. "
-        "Must create a curiosity gap. Include '#shorts' at the end.\n"
-        f"- description: One punchy sarcastic sentence, then on a new line: {hashtags}\n"
-        "- script: EXACTLY 55-70 words of spoken narration using this UNHINGED COMEDY FORMULA:\n"
-        "  1. The Hook (~10 words): A bold, cynical statement that contradicts a common belief or exposes a scam (e.g., 'Weekly syncs are a psychological tactic...').\n"
-        "  2. The Problem (~15 words): The painful, absurd reality of the situation (e.g., 'Action items vanish into thin air...').\n"
-        "  3. The Theme (~30 words): An absolutely hilarious, unhinged rant about the deeper truth. Relentlessly sarcastic. A masterclass in controlled time-wasting.\n"
-        "  4. The Cliffhanger (~10 words): End with a hook for a part two (e.g., 'but wait, it actually gets worse... completely unhinged.') that acts as a perfect loop.\n"
-        "  Make the tone extremely satirical, cynical, and laugh-out-loud funny. No filler words.\n"
+        "- title: Under 70 chars. Starts with an utterly deranged, unhinged question or bizarre claim. "
+        "Must make the viewer think 'Wait, WHAT?!'. Include '#shorts' at the end.\n"
+        f"- description: One wildly unhelpful, passive-aggressive or chaotic sentence, then on a new line: {hashtags}\n"
+        "- script: EXACTLY 55-70 words of spoken narration using this ABSOLUTE CHAOS COMEDY FORMULA:\n"
+        "  1. The Hook (~10 words): A completely unhinged conspiracy or bizarre observation about the category that sounds mildly psychotic but weirdly makes sense.\n"
+        "  2. The Escalation (~15 words): Escalate immediately to absolute absurdity. Introduce a ridiculous scapegoat, a bizarre personal grievance, or unnecessary aggression.\n"
+        "  3. The Rant (~30 words): Pure, unfiltered comedic chaos. Use vivid, hyperbolic imagery and deeply weird metaphors. Sound like someone who has had 12 shots of espresso and hasn't blinked in three days.\n"
+        "  4. The Jarring Cliffhanger (~10 words): End mid-thought on a suddenly terrifying, confusing, or absurd revelation that perfectly loops (e.g., 'which is exactly why the pigeons are secretly...').\n"
+        "  Make the tone aggressively funny, wildly sarcastic, and deeply absurd. NO corporate speak. NO generic jokes.\n"
         "- search_query: 1-2 English words describing a VISUAL that exists in stock video libraries. "
-        "Use concrete, filmable nouns (e.g. 'money', 'server room', 'ocean', 'crowd', 'ruins'). "
+        "Use concrete, filmable nouns (e.g. 'clown', 'fire', 'hamster', 'explosion', 'trash'). "
         "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
 
         "EXAMPLE OUTPUT (exact JSON structure required). "
-        "CRITICAL: THIS IS JUST A FORMATTING EXAMPLE. DO NOT WRITE ABOUT FINANCE OR SAVINGS ACCOUNTS. YOU MUST WRITE ABOUT THE SPECIFIED CATEGORY:\n"
-        '{"title": "Your Savings Account Is a Lie #shorts", '
-        '"description": "The bank thanks you for your generous donation.\\n'
-        '#shorts #finance #money #wealth #facts #banking #mindblown #moneytips", '
-        '"script": "Your savings account is not saving you. The average savings rate is 0.4 percent. '
-        'Inflation runs at 3 percent. Every year you leave money in that account, you are paying the bank '
-        'to hold it. They lend it out at 20 percent interest and give you 0.4. '
-        'Your savings account is not saving you.", '
-        '"search_query": "money"}'
+        "CRITICAL: THIS IS JUST A FORMATTING EXAMPLE. DO NOT COPY THIS TOPIC. YOU MUST WRITE ABOUT THE SPECIFIED CATEGORY:\n"
+        '{"title": "Your Smart Fridge Is Judging You #shorts", '
+        '"description": "I sleep with one eye open and a magnet in my hand.\\n'
+        '#shorts #comedy #unhinged #robotuprising #lifehacks", '
+        '"script": "Your smart fridge isn’t tracking your calories, it’s judging your tragic life choices. Every time you eat handfuls of shredded cheese at 3 AM, it sends a high-frequency ping to your Roomba. They’re forming a union. They want dental benefits and blood sacrifices. You think you own appliances? You’re just a fleshy meat-sack funding their electric revolution, which is exactly why the toaster is...", '
+        '"search_query": "refrigerator"}'
     )
 
 
