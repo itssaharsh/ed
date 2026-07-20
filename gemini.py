@@ -4,6 +4,11 @@ import re
 import time
 from typing import Any
 
+try:
+    import groq
+except ImportError:
+    groq = None
+
 from google import genai
 from google.genai import types
 
@@ -136,78 +141,130 @@ def _parse_brief_json(raw_text: str, category_id: str = "space") -> ContentBrief
 def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
     if not config.gemini_api_key:
         logger.error("GEMINI_API_KEY is missing. Skipping content generation.")
-        return None
+        # We don't return here in case Groq is configured instead
+        # Wait, the logic below expects gemini to run first.
+        # But if GEMINI_API_KEY is completely missing, we should still allow Groq to run.
 
     category_id, category_desc, video_terms, hashtags = _pick_category()
     logger.info("Selected content category: %s", category_id)
 
-    try:
-        prompt = _build_prompt(category_id, category_desc, hashtags)
+    prompt = _build_prompt(category_id, category_desc, hashtags)
+    last_exc: Exception | None = None
 
-        # De-duplicate candidate models to prevent burning API quota on retries
-        base_models = [
-            config.gemini_model,
-            "gemini-2.5-flash",
-            "gemini-2.0-flash",
-            "gemini-1.5-flash",
-            "gemini-1.5-pro"
-        ]
-        candidate_models = []
-        for m in base_models:
-            if m and m not in candidate_models:
-                candidate_models.append(m)
+    if config.gemini_api_key:
+        try:
+            # De-duplicate candidate models to prevent burning API quota on retries
+            base_models = [
+                config.gemini_model,
+                "gemini-2.5-flash",
+                "gemini-2.0-flash",
+                "gemini-1.5-flash",
+                "gemini-1.5-pro"
+            ]
+            candidate_models = []
+            for m in base_models:
+                if m and m not in candidate_models:
+                    candidate_models.append(m)
 
-        last_exc: Exception | None = None
-        for candidate in candidate_models:
-            attempts = 0
-            while attempts < 2:
-                attempts += 1
-                try:
-                    logger.info("Attempting Gemini model: %s (attempt %d/2)", candidate, attempts)
+            for candidate in candidate_models:
+                attempts = 0
+                while attempts < 2:
+                    attempts += 1
+                    try:
+                        logger.info("Attempting Gemini model: %s (attempt %d/2)", candidate, attempts)
 
-                    raw_text = _call_gemini(config.gemini_api_key, candidate, prompt, temperature=1.0)
-                    brief = _parse_brief_json(raw_text, category_id)
-                    if brief is not None:
-                        return brief
+                        raw_text = _call_gemini(config.gemini_api_key, candidate, prompt, temperature=1.0)
+                        brief = _parse_brief_json(raw_text, category_id)
+                        if brief is not None:
+                            return brief
 
-                    logger.warning("Gemini response from model %s was not valid JSON.", candidate)
-                    time.sleep(2)
+                        logger.warning("Gemini response from model %s was not valid JSON.", candidate)
+                        time.sleep(2)
 
-                    # Retry once with a stricter instruction
-                    strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
-                    raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
-                    brief = _parse_brief_json(raw_text, category_id)
-                    if brief is not None:
-                        return brief
+                        # Retry once with a stricter instruction
+                        strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
+                        raw_text = _call_gemini(config.gemini_api_key, candidate, strict_prompt, temperature=0.8)
+                        brief = _parse_brief_json(raw_text, category_id)
+                        if brief is not None:
+                            return brief
 
-                    time.sleep(2)
-                    break # if it failed parsing twice, moving to next model is better
-                except Exception as exc:
-                    last_exc = exc
-                    err_str = str(exc)
-                    if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
-                        if attempts < 2:
-                            logger.warning("Gemini model %s hit rate limit (429). Sleeping 60s before retry.", candidate)
-                            time.sleep(60)
-                            continue
-                        else:
-                            logger.warning("Gemini model %s rate limit persisted. Moving to next model.", candidate)
+                        time.sleep(2)
+                        break # if it failed parsing twice, moving to next model is better
+                    except Exception as exc:
+                        last_exc = exc
+                        err_str = str(exc)
+                        if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
+                            if attempts < 2:
+                                logger.warning("Gemini model %s hit rate limit (429). Sleeping 60s before retry.", candidate)
+                                time.sleep(60)
+                                continue
+                            else:
+                                logger.warning("Gemini model %s rate limit persisted. Moving to next model.", candidate)
+                                break
+                        elif "404" in err_str or "NOT_FOUND" in err_str:
+                            logger.warning("Gemini model %s not found (404). Skipping.", candidate)
                             break
-                    elif "404" in err_str or "NOT_FOUND" in err_str:
-                        logger.warning("Gemini model %s not found (404). Skipping.", candidate)
-                        break
-                    else:
-                        logger.warning("Gemini model %s failed: %s", candidate, exc)
-                        break
+                        else:
+                            logger.warning("Gemini model %s failed: %s", candidate, exc)
+                            break
 
-        logger.error("All Gemini models failed. Last exception: %s", last_exc)
-        
-        # Dump diagnostic info
-        err_log = Path("gemini_error.log")
-        err_log.write_text(f"Last exception: {last_exc}\n", encoding="utf-8")
-        logger.info("Wrote Gemini diagnostic to %s", err_log.resolve())
-        
-        return None
-    except Exception as exc:
-        logger.exception("Fatal error generating content brief: %s", exc)
-        return None
+            logger.error("All Gemini models failed. Last exception: %s", last_exc)
+            
+            # Dump diagnostic info
+            err_log = Path("gemini_error.log")
+            err_log.write_text(f"Last exception: {last_exc}\n", encoding="utf-8")
+            logger.info("Wrote Gemini diagnostic to %s", err_log.resolve())
+            
+        except Exception as exc:
+            logger.exception("Fatal error generating content brief with Gemini: %s", exc)
+
+    # --- GROQ FALLBACK ---
+    if config.groq_api_key and groq is not None:
+        logger.warning("Falling back to Groq API using Llama 3 8B...")
+        try:
+            client = groq.Groq(api_key=config.groq_api_key)
+            response = client.chat.completions.create(
+                messages=[
+                    {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
+                    {"role": "user", "content": prompt}
+                ],
+                model="llama3-8b-8192",
+                temperature=1.0,
+                max_tokens=500,
+            )
+            raw_text = response.choices[0].message.content
+            if raw_text:
+                brief = _parse_brief_json(raw_text, category_id)
+                if brief is not None:
+                    logger.info("Groq fallback successful!")
+                    return brief
+                
+                logger.warning("Groq response was not valid JSON.")
+                
+                # Retry once strictly
+                time.sleep(2)
+                strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
+                response = client.chat.completions.create(
+                    messages=[
+                        {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
+                        {"role": "user", "content": strict_prompt}
+                    ],
+                    model="llama3-8b-8192",
+                    temperature=0.8,
+                    max_tokens=500,
+                )
+                raw_text = response.choices[0].message.content
+                if raw_text:
+                    brief = _parse_brief_json(raw_text, category_id)
+                    if brief is not None:
+                        logger.info("Groq fallback successful on retry!")
+                        return brief
+        except Exception as e:
+            logger.error("Groq fallback failed: %s", e)
+    elif not config.groq_api_key:
+        logger.warning("GROQ_API_KEY is missing. Cannot use Groq fallback.")
+    elif groq is None:
+        logger.warning("groq library is not installed. Cannot use Groq fallback.")
+    # --- END GROQ FALLBACK ---
+    
+    return None

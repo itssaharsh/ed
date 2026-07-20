@@ -61,6 +61,7 @@ class PipelineConfig:
     workspace: Path
     gemini_api_key: str | None
     pexels_api_key: str | None
+    groq_api_key: str | None
     youtube_client_secrets: Path
     youtube_credentials: Path
     output_audio: Path
@@ -91,6 +92,7 @@ def build_config() -> PipelineConfig:
         workspace=workspace,
         gemini_api_key=os.environ.get("GEMINI_API_KEY"),
         pexels_api_key=os.environ.get("PEXELS_API_KEY"),
+        groq_api_key=os.environ.get("GROQ_API_KEY"),
         youtube_client_secrets=Path(os.environ.get("YOUTUBE_CLIENT_SECRETS_PATH", workspace / "client_secrets.json")),
         youtube_credentials=Path(os.environ.get("YOUTUBE_CREDENTIALS_PATH", workspace / "credentials.json")),
         output_audio=workspace / "audio.mp3",
