@@ -79,7 +79,8 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             temperature=temperature,
             top_p=0.95 if temperature == 1.0 else 0.9,
             max_output_tokens=2048,
-            safety_settings=safety_settings
+            safety_settings=safety_settings,
+            response_mime_type="application/json"
         )
     )
     return response.text or ""
@@ -226,7 +227,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                     {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
                     {"role": "user", "content": prompt}
                 ],
-                model="llama3-8b-8192",
+                model="llama-3.1-8b-instant",
                 temperature=1.0,
                 max_tokens=500,
             )
@@ -247,7 +248,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                         {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
                         {"role": "user", "content": strict_prompt}
                     ],
-                    model="llama3-8b-8192",
+                    model="llama-3.1-8b-instant",
                     temperature=0.8,
                     max_tokens=500,
                 )
