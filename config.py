@@ -11,8 +11,9 @@ logger = logging.getLogger(__name__)
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
-# en-US-TonyNeural: upbeat, punchy American male — ideal for fast-paced comedy shorts
-DEFAULT_VOICE = "en-US-TonyNeural"
+# en-US-GuyNeural: crisp, articulate, conversational American male voice
+# Perfect for the "roasting a friend" stand-up storytelling style of the reference video.
+DEFAULT_VOICE = "en-US-GuyNeural"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
@@ -82,6 +83,9 @@ class ContentBrief:
     script: str
     search_query: str
     category: str = "space"
+    # Tuple of 8 stock-footage search terms — one per 3-4 second video cut.
+    # Using tuple (not list) so the frozen dataclass remains hashable.
+    video_keywords: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class SrtCue:

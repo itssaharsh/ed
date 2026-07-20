@@ -7,8 +7,8 @@ from config import PipelineConfig, SrtCue, logger
 
 def generate_voice_and_captions(config: PipelineConfig, script: str) -> tuple[Path, Path] | tuple[None, None]:
     # Target 30 seconds — the sweet spot for Shorts completion rate.
-    # Comedic delivery needs ~155 WPM to feel snappy, not sleepy.
-    script = _stretch_script_to_target(script, target_seconds=30, wpm=155)
+    # ~150 WPM at +18% rate lands the storytelling pace of the reference video.
+    script = _stretch_script_to_target(script, target_seconds=30, wpm=150)
     try:
         asyncio.run(_generate_audio_and_srt(config.voice, script, config.output_audio, config.output_srt))
         return config.output_audio, config.output_srt
@@ -25,16 +25,16 @@ def _stretch_script_to_target(script: str, *, target_seconds: float = 30.0, wpm:
     if len(words) >= target_words:
         return script
 
-    # Comedy-flavored filler lines — unhinged, punchy, and on-brand chaos.
-    # These kick in if the script is under ~77 words to hit the 30s target.
+    # Conversational storytelling fillers — extend the anecdote naturally
+    # without breaking the "talking to a friend" voice.
     fillers = [
-        "And I CANNOT stress this enough.",
-        "The audacity. The absolute audacity.",
-        "Nobody is talking about this. Nobody.",
-        "I'm not okay and neither should you be.",
-        "Anyway, that's just Tuesday apparently.",
-        "This is fine. Everything is completely fine.",
-        "The chaos never stops. It only gets louder.",
+        "And the worst part? He was completely serious.",
+        "I couldn't even look him in the eye.",
+        "No remorse. Zero. None whatsoever.",
+        "Which is honestly the most on-brand thing ever.",
+        "And I say this with love.",
+        "This is the same person, by the way.",
+        "I don't know what I expected.",
     ]
     i = 0
     while len(words) < target_words:
@@ -52,9 +52,9 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
     clean_script = re.sub(r'["\'\(\)\[\]]', '', clean_script)
     clean_script = re.sub(r'\s+', ' ', clean_script).strip()
 
-    # +22% rate: snappy, punchy comedic delivery — not robotic, not slow.
-    # Pitch left at default; Tony's natural voice already has great comic energy.
-    communicate = edge_tts.Communicate(clean_script, voice, rate="+22%", boundary="WordBoundary")
+    # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
+    # Matches the crisp, articulate TTS delivery of the reference video.
+    communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
 
     with audio_path.open("wb") as audio_file:

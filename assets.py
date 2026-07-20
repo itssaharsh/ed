@@ -79,6 +79,23 @@ def _pexels_download_for_query(
         return False
 
 def _extract_visual_keywords(brief: "ContentBrief") -> list[str]:
+    """Build the ordered list of stock-footage search queries.
+
+    Primary: use the AI-generated ``video_keywords`` tuple (up to 8 terms).
+    These are scene-by-scene terms that map to 3-4 second cuts in the video,
+    giving the fast-cut stock montage look of the reference Short.
+
+    Fallback: original behaviour using search_query + category terms.
+    """
+    if brief.video_keywords:
+        logger.info(
+            "Using %d AI-generated video_keywords for clip search.",
+            len(brief.video_keywords),
+        )
+        return list(brief.video_keywords)  # up to 8 terms
+
+    # Fallback — used when video_keywords is missing (old brief format)
+    logger.warning("video_keywords empty; falling back to search_query + category terms.")
     primary = brief.search_query
     category_terms: list[str] = []
     for cat_id, _, _, terms, _ in _CONTENT_CATEGORIES:
@@ -87,7 +104,7 @@ def _extract_visual_keywords(brief: "ContentBrief") -> list[str]:
             break
     queries: list[str] = [primary]
     for term in category_terms:
-        if term.lower() != primary.lower() and len(queries) < 3:
+        if term.lower() != primary.lower() and len(queries) < 8:
             queries.append(term)
     return queries
 

@@ -35,31 +35,40 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         "OUTPUT ONLY A SINGLE RAW JSON OBJECT. "
         "DO NOT wrap in markdown code fences. DO NOT add any text before or after the JSON. "
         "The very first character MUST be '{' and the very last MUST be '}'. "
-        "Use exactly these four string keys: title, description, script, search_query.\n\n"
+        "Use exactly these five keys: title, description, script, search_query, video_keywords.\n\n"
 
         f"CATEGORY: {category_desc}\n\n"
 
         "FIELD RULES:\n"
-        "- title: Under 70 chars. Starts with an utterly deranged, unhinged question or bizarre claim. "
-        "Must make the viewer think 'Wait, WHAT?!'. Include '#shorts' at the end.\n"
-        f"- description: One wildly unhelpful, passive-aggressive or chaotic sentence, then on a new line: {hashtags}\n"
-        "- script: EXACTLY 55-70 words of spoken narration using this ABSOLUTE CHAOS COMEDY FORMULA:\n"
-        "  1. The Hook (~10 words): A completely unhinged conspiracy or bizarre observation about the category that sounds mildly psychotic but weirdly makes sense.\n"
-        "  2. The Escalation (~15 words): Escalate immediately to absolute absurdity. Introduce a ridiculous scapegoat, a bizarre personal grievance, or unnecessary aggression.\n"
-        "  3. The Rant (~30 words): Pure, unfiltered comedic chaos. Use vivid, hyperbolic imagery and deeply weird metaphors. Sound like someone who has had 12 shots of espresso and hasn't blinked in three days.\n"
-        "  4. The Jarring Cliffhanger (~10 words): End mid-thought on a suddenly terrifying, confusing, or absurd revelation that perfectly loops (e.g., 'which is exactly why the pigeons are secretly...').\n"
-        "  Make the tone aggressively funny, wildly sarcastic, and deeply absurd. NO corporate speak. NO generic jokes. STRICTLY under 75 words total! DO NOT generate endless trailing thoughts.\n"
-        "- search_query: 1-2 English words describing a VISUAL that exists in stock video libraries. "
-        "Use concrete, filmable nouns (e.g. 'clown', 'fire', 'hamster', 'explosion', 'trash'). "
-        "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
+        "- title: Under 70 chars. A punchy, relatable title roasting a person or situation — like a caption someone would screenshot and text to a friend. "
+        "Add an emoji that matches the vibe. Include '#shorts' at the end.\n"
+        f"- description: One witty, sarcastic single-sentence hook that makes someone stop scrolling, then on a new line: {hashtags}\n"
+        "- script: EXACTLY 65-85 words of conversational stand-up comedy storytelling. Use this STORYTELLING FORMULA:\n"
+        "  1. The Hook (~10 words): Start with a relatable, universal observation. Use openers like 'Ever met someone who...', 'You know that person who...', or 'Nobody talks about how...'\n"
+        "  2. The Setup (~15 words): Introduce 'this friend' or 'someone I know' doing something absurd. ONE specific funny detail that paints the picture instantly.\n"
+        "  3. The Story (~30 words): A brief anecdote with dialogue (use DIRECT QUOTES). Add one very specific absurd detail that escalates naturally and feels true-to-life.\n"
+        "  4. The Punchline (~15 words): Land the joke hard. A deadpan observation, exaggerated advice, or brutally honest kicker that makes the viewer laugh out loud.\n"
+        "  TONE: Like you're roasting a friend to another friend at 2am. Sarcastic, observational, conversational. NOT conspiracy theories or chaos rants. "
+        "Specific real-life details make it funny. Dialogue makes it vivid. STRICTLY under 90 words total.\n"
+        "- search_query: 1-2 English words for the MAIN visual scene. Must be a concrete, filmable noun from stock video libraries (e.g., 'library', 'gym', 'office', 'restaurant').\n"
+        "- video_keywords: A JSON ARRAY of exactly 8 different 1-3 word English strings. "
+        "Each is a specific stock footage search term for a different 3-4 second cut in the video. "
+        "They should loosely follow the story: start generic/relatable, match the anecdote moments, end on the punchline visual. "
+        "Be concrete and filmable. Format: [\"person laughing\", \"library aisle\", \"confused man\", \"woman reading\", \"phone texting\", \"coffee shop\", \"gym fail\", \"pointing finger\"]\n\n"
 
         "EXAMPLE OUTPUT (exact JSON structure required). "
-        "CRITICAL: THIS IS JUST A FORMATTING EXAMPLE. DO NOT COPY THIS TOPIC. YOU MUST WRITE ABOUT THE SPECIFIED CATEGORY:\n"
-        '{"title": "Your Smart Fridge Is Judging You #shorts", '
-        '"description": "I sleep with one eye open and a magnet in my hand.\\n'
-        '#shorts #comedy #unhinged #robotuprising #lifehacks", '
-        '"script": "Your smart fridge isn’t tracking your calories, it’s judging your tragic life choices. Every time you eat handfuls of shredded cheese at 3 AM, it sends a high-frequency ping to your Roomba. They’re forming a union. They want dental benefits and blood sacrifices. You think you own appliances? You’re just a fleshy meat-sack funding their electric revolution, which is exactly why the toaster is...", '
-        '"search_query": "refrigerator"}'
+        "CRITICAL: THIS IS JUST A FORMATTING EXAMPLE. DO NOT COPY THIS TOPIC. WRITE ABOUT THE SPECIFIED CATEGORY:\n"
+        '{"title": "Bro With No Job Said Work Hard 💀 #shorts", '
+        '"description": "Some people don\'t have goals, they just have confidence. And that\'s way more dangerous.\\n'
+        '#shorts #comedy #relatable #funny #darkhumor", '
+        '"script": "Ever met someone who treats life like a choose-your-own-disaster game? Like my friend — '
+        'this guy wakes up every day and just picks chaos. Yesterday he goes, I think I misunderstood. '
+        'I said, No bro, we get you, that\'s the real issue. He got kicked out of a library. A library! '
+        'You have to be quieter than a ninja in there. His excuse? I was just thinking out loud. '
+        'Bro, you need supervised freedom and maybe a helmet.", '
+        '"search_query": "library", '
+        '"video_keywords": ["person laughing", "library aisle", "confused man", "woman reading", '
+        '"phone screen", "coffee shop", "gym crowd", "pointing finger"]}'
     )
 
 
@@ -127,13 +136,32 @@ def _parse_brief_json(raw_text: str, category_id: str = "space") -> ContentBrief
     script = _normalize_text(payload.get("script", ""), max_length=1500)
     search_query = _normalize_search_query(payload.get("search_query", ""))
 
+    # Parse video_keywords — list of filmable search terms for per-cut stock footage
+    raw_keywords = payload.get("video_keywords", [])
+    if isinstance(raw_keywords, list):
+        video_keywords: tuple[str, ...] = tuple(
+            str(k).strip() for k in raw_keywords if k and str(k).strip()
+        )[:8]
+    else:
+        video_keywords = ()
+
     if not title or not description or not script or not search_query:
         logger.warning("Parsed JSON is missing required fields. Payload received: %s", payload)
         return None
 
+    if not video_keywords:
+        logger.warning("video_keywords missing or empty — stock footage cuts will be limited.")
+
     script = _limit_words(script, 90)
     description = _ensure_shorts_hashtag(description)
-    return ContentBrief(title=title, description=description, script=script, search_query=search_query, category=category_id)
+    return ContentBrief(
+        title=title,
+        description=description,
+        script=script,
+        search_query=search_query,
+        category=category_id,
+        video_keywords=video_keywords,
+    )
 
 
 def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
@@ -224,9 +252,10 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             response = client.chat.completions.create(
                 messages=[
                     {"role": "system", "content": (
-                        "You are a completely unhinged, wildly chaotic comedy writer for YouTube Shorts. "
-                        "Your job is to produce the most absurd, hilarious, and deeply weird short-form scripts possible. "
-                        "Think: conspiracy theorist who's had 12 espressos, aggressively sarcastic, vivid hyperbolic imagery. "
+                        "You are a conversational stand-up comedy writer for YouTube Shorts. "
+                        "You write like you're roasting a friend to another friend at 2am — sarcastic, observational, grounded in real situations. "
+                        "Specific funny details, direct dialogue quotes, and absurd-but-real anecdotes. "
+                        "NOT chaos rants or conspiracy theories. Real people doing dumb things, told in a punchy story. "
                         "You ONLY output pure JSON — no markdown fences, no extra text, just raw JSON."
                     )},
                     {"role": "user", "content": prompt}
@@ -250,9 +279,10 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                 response = client.chat.completions.create(
                     messages=[
                         {"role": "system", "content": (
-                            "You are a completely unhinged, wildly chaotic comedy writer for YouTube Shorts. "
-                            "Your job is to produce the most absurd, hilarious, and deeply weird short-form scripts possible. "
-                            "Think: conspiracy theorist who's had 12 espressos, aggressively sarcastic, vivid hyperbolic imagery. "
+                            "You are a conversational stand-up comedy writer for YouTube Shorts. "
+                            "You write like you're roasting a friend to another friend at 2am — sarcastic, observational, grounded in real situations. "
+                            "Specific funny details, direct dialogue quotes, and absurd-but-real anecdotes. "
+                            "NOT chaos rants or conspiracy theories. Real people doing dumb things, told in a punchy story. "
                             "You ONLY output pure JSON — no markdown fences, no extra text, just raw JSON."
                         )},
                         {"role": "user", "content": strict_prompt}

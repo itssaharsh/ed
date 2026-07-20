@@ -17,20 +17,18 @@ from PIL import Image, ImageDraw, ImageFont
 from config import PipelineConfig, SrtCue, TARGET_WIDTH, TARGET_HEIGHT, logger
 from audio import _parse_srt_file
 
-# Caption panel dimensions
-_CAPTION_PANEL_W = TARGET_WIDTH          # 1080
-_CAPTION_PANEL_H = 500                   # tall enough for 3 wrapped lines
-_CAPTION_FONT_SIZE = 80                  # bigger = more comedic impact
-_CAPTION_PADDING_X = 52
-_CAPTION_PADDING_Y = 32
-_CAPTION_BG_COLOR = (10, 10, 10, 185)    # near-black pill, high contrast
-_CAPTION_BG_RADIUS = 32                  # pill corner radius
-_CAPTION_TEXT_COLOR = (255, 230, 0, 255) # BRIGHT YELLOW — comedy gold
+# ── Caption style: center-screen word-burst (matches reference video) ────────
+# Captions appear dead center, 2 words at a time, uppercase bold white text
+# with a thick black stroke — exactly like the reference YouTube Short.
+_CAPTION_PANEL_W = TARGET_WIDTH   # 1080
+_CAPTION_PANEL_H = 340            # just enough for 1-2 lines at large font
+_CAPTION_FONT_SIZE = 96           # big and impactful
+_CAPTION_PADDING_X = 40
+_CAPTION_PADDING_Y = 20
+_CAPTION_TEXT_COLOR = (255, 255, 255, 255)  # crisp white
 _CAPTION_STROKE_COLOR = (0, 0, 0, 255)
-_CAPTION_STROKE_WIDTH = 5               # chunky stroke for maximum pop
-
-# How far up from the bottom of the full frame the caption panel sits (px)
-_CAPTION_BOTTOM_OFFSET = 160
+_CAPTION_STROKE_WIDTH = 6         # thick stroke so it pops on any background
+_CAPTION_WORDS_PER_BURST = 2      # words shown simultaneously
 
 def _ken_burns_zoom(
     clip: "VideoFileClip",
@@ -162,7 +160,10 @@ def assemble_video(
 
     try:
         audio_clip = AudioFileClip(str(audio_path))
-        subtitle_cues = _parse_srt_file(srt_path)
+
+        # ── Word-burst captions — group individual words into 2-word pops ────
+        word_cues = _parse_srt_file(srt_path)
+        subtitle_cues = _group_word_cues(word_cues, words_per_group=_CAPTION_WORDS_PER_BURST)
         subtitle_clips = [_subtitle_clip_for_cue(cue) for cue in subtitle_cues]
 
         # ── Determine total video duration ───────────────────────────────────
@@ -256,12 +257,37 @@ def assemble_video(
         logger.error("Video assembly failed: %s", exc)
         return None
 
+def _group_word_cues(cues: list[SrtCue], words_per_group: int = 2) -> list[SrtCue]:
+    """Group per-word SRT cues into N-word burst captions.
+
+    edge_tts with WordBoundary emits one SRT entry per word.  Grouping
+    them into pairs of 2 creates the snappy pop-up caption style seen in
+    the reference video and virtually every viral Short/Reel.
+    Text is UPPERCASED for maximum visual impact.
+    """
+    if not cues:
+        return []
+    grouped: list[SrtCue] = []
+    for i in range(0, len(cues), words_per_group):
+        chunk = cues[i : i + words_per_group]
+        text = " ".join(c.text for c in chunk).upper()
+        start = chunk[0].start
+        end = chunk[-1].end
+        # Give each burst at least 0.25s on screen so fast words are readable
+        end = max(end, start + 0.25)
+        grouped.append(SrtCue(start=start, end=end, text=text))
+    return grouped
+
+
 def _subtitle_clip_for_cue(cue: SrtCue) -> ImageClip:
     image_path = _render_caption_image(cue.text)
-    clip = ImageClip(str(image_path)).with_start(cue.start).with_duration(max(cue.end - cue.start, 0.2))
-    # Pin to bottom-third: y is measured from top of the full 1920px frame
-    y_pos = TARGET_HEIGHT - _CAPTION_PANEL_H - _CAPTION_BOTTOM_OFFSET
-    return clip.with_position(("center", y_pos))
+    clip = (
+        ImageClip(str(image_path))
+        .with_start(cue.start)
+        .with_duration(max(cue.end - cue.start, 0.25))
+    )
+    # Dead center on screen — matches the reference video's caption placement
+    return clip.with_position(("center", "center"))
 
 def _draw_rounded_rect(
     draw: ImageDraw.ImageDraw,
@@ -281,65 +307,49 @@ def _draw_rounded_rect(
     draw.rectangle((x0, y0 + radius, x1, y1 - radius), fill=fill)
 
 def _render_caption_image(text: str) -> Path:
-    """Render a single caption cue as a PNG with a TikTok-style pill background.
+    """Render a word-burst caption as a transparent PNG.
 
-    Layout (all measurements in px, canvas = 1080 x _CAPTION_PANEL_H):
-      - Semi-transparent rounded-rect pill behind the text
-      - White text with black stroke for readability on any background
-      - Text is horizontally centered, vertically centered within the pill
+    Style: bold uppercase white text with thick black stroke on a fully
+    transparent background.  No pill — the text floats cleanly over the
+    video footage, exactly like the reference Short.
     """
     temp_dir = Path(__file__).resolve().parent / "_caption_cache"
     temp_dir.mkdir(parents=True, exist_ok=True)
     file_name = f"caption_{abs(hash(text))}.png"
     output_path = temp_dir / file_name
+    if output_path.exists():
+        return output_path  # use cache to avoid re-rendering duplicates
 
     font = _load_caption_font(_CAPTION_FONT_SIZE)
 
-    # -- Measure wrapped text on a temporary canvas ---------------------------
+    # -- Measure text on a probe canvas ---------------------------------------
     probe = Image.new("RGBA", (1, 1))
     probe_draw = ImageDraw.Draw(probe)
-    wrapped_text = _wrap_text(probe_draw, text, font, max_width=_CAPTION_PANEL_W - 2 * _CAPTION_PADDING_X)
+    max_text_w = _CAPTION_PANEL_W - 2 * _CAPTION_PADDING_X
+    wrapped_text = _wrap_text(probe_draw, text, font, max_width=max_text_w)
     bbox = probe_draw.multiline_textbbox(
-        (0, 0), wrapped_text, font=font, spacing=10, stroke_width=_CAPTION_STROKE_WIDTH
+        (0, 0), wrapped_text, font=font, spacing=8, stroke_width=_CAPTION_STROKE_WIDTH
     )
     text_w = bbox[2] - bbox[0]
     text_h = bbox[3] - bbox[1]
 
-    # -- Pill dimensions ------------------------------------------------------
-    pill_w = min(text_w + 2 * _CAPTION_PADDING_X, _CAPTION_PANEL_W - 40)
-    pill_h = text_h + 2 * _CAPTION_PADDING_Y
-    pill_x0 = (_CAPTION_PANEL_W - pill_w) // 2
-    pill_y0 = (_CAPTION_PANEL_H - pill_h) // 2
-    pill_x1 = pill_x0 + pill_w
-    pill_y1 = pill_y0 + pill_h
-
-    # -- Render ---------------------------------------------------------------
-    image = Image.new("RGBA", (_CAPTION_PANEL_W, _CAPTION_PANEL_H), (0, 0, 0, 0))
+    # -- Canvas: just big enough to hold the text with padding ----------------
+    canvas_w = _CAPTION_PANEL_W
+    canvas_h = text_h + 2 * _CAPTION_PADDING_Y
+    image = Image.new("RGBA", (canvas_w, canvas_h), (0, 0, 0, 0))
     draw = ImageDraw.Draw(image)
 
-    # Pill background
-    _draw_rounded_rect(draw, (pill_x0, pill_y0, pill_x1, pill_y1), _CAPTION_BG_RADIUS, _CAPTION_BG_COLOR)
+    # Centered text position
+    text_x = (canvas_w - text_w) / 2
+    text_y = _CAPTION_PADDING_Y
 
-    # Text position: centered inside pill
-    text_x = (_CAPTION_PANEL_W - text_w) / 2
-    text_y = pill_y0 + _CAPTION_PADDING_Y
-
-    # Drop shadow (offset +3, +3, slightly transparent)
-    draw.multiline_text(
-        (text_x + 3, text_y + 3),
-        wrapped_text,
-        font=font,
-        fill=(0, 0, 0, 140),
-        spacing=10,
-        align="center",
-    )
-    # Main text with stroke
+    # Main text: white fill + thick black stroke (no separate shadow needed)
     draw.multiline_text(
         (text_x, text_y),
         wrapped_text,
         font=font,
         fill=_CAPTION_TEXT_COLOR,
-        spacing=10,
+        spacing=8,
         align="center",
         stroke_width=_CAPTION_STROKE_WIDTH,
         stroke_fill=_CAPTION_STROKE_COLOR,
@@ -349,7 +359,13 @@ def _render_caption_image(text: str) -> Path:
     return output_path
 
 def _load_caption_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFont:
+    """Load the boldest available font. Checks Windows paths first for local dev,
+    then Linux paths for GitHub Actions (Ubuntu runner)."""
     font_candidates = [
+        # Windows — Arial Bold is ideal for the reference video's look
+        "C:/Windows/Fonts/arialbd.ttf",
+        "C:/Windows/Fonts/Arial Bold.ttf",
+        # Linux / GitHub Actions (Ubuntu)
         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation2/LiberationSans-Bold.ttf",
         "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
@@ -357,6 +373,7 @@ def _load_caption_font(size: int) -> ImageFont.FreeTypeFont | ImageFont.ImageFon
     for font_path in font_candidates:
         if Path(font_path).exists():
             return ImageFont.truetype(font_path, size=size)
+    logger.warning("No TrueType bold font found; falling back to PIL default (captions will look basic).")
     return ImageFont.load_default()
 
 def _wrap_text(draw: ImageDraw.ImageDraw, text: str, font: ImageFont.ImageFont, max_width: int) -> str:
