@@ -54,7 +54,8 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         "Use concrete, filmable nouns (e.g. 'money', 'server room', 'ocean', 'crowd', 'ruins'). "
         "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
 
-        "EXAMPLE OUTPUT (exact JSON structure required):\n"
+        "EXAMPLE OUTPUT (exact JSON structure required). "
+        "CRITICAL: THIS IS JUST A FORMATTING EXAMPLE. DO NOT WRITE ABOUT FINANCE OR SAVINGS ACCOUNTS. YOU MUST WRITE ABOUT THE SPECIFIED CATEGORY:\n"
         '{"title": "Your Savings Account Is a Lie #shorts", '
         '"description": "The bank thanks you for your generous donation.\\n'
         '#shorts #finance #money #wealth #facts #banking #mindblown #moneytips", '
