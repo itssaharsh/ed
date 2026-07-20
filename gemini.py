@@ -48,7 +48,7 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
         "  2. The Escalation (~15 words): Escalate immediately to absolute absurdity. Introduce a ridiculous scapegoat, a bizarre personal grievance, or unnecessary aggression.\n"
         "  3. The Rant (~30 words): Pure, unfiltered comedic chaos. Use vivid, hyperbolic imagery and deeply weird metaphors. Sound like someone who has had 12 shots of espresso and hasn't blinked in three days.\n"
         "  4. The Jarring Cliffhanger (~10 words): End mid-thought on a suddenly terrifying, confusing, or absurd revelation that perfectly loops (e.g., 'which is exactly why the pigeons are secretly...').\n"
-        "  Make the tone aggressively funny, wildly sarcastic, and deeply absurd. NO corporate speak. NO generic jokes.\n"
+        "  Make the tone aggressively funny, wildly sarcastic, and deeply absurd. NO corporate speak. NO generic jokes. STRICTLY under 75 words total! DO NOT generate endless trailing thoughts.\n"
         "- search_query: 1-2 English words describing a VISUAL that exists in stock video libraries. "
         "Use concrete, filmable nouns (e.g. 'clown', 'fire', 'hamster', 'explosion', 'trash'). "
         "NOT abstract concepts like 'freedom' or 'fear'.\n\n"
@@ -79,8 +79,7 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             temperature=temperature,
             top_p=0.95 if temperature == 1.0 else 0.9,
             max_output_tokens=2048,
-            safety_settings=safety_settings,
-            response_mime_type="application/json"
+            safety_settings=safety_settings
         )
     )
     return response.text or ""
