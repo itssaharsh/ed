@@ -19,18 +19,18 @@ from audio import _parse_srt_file
 
 # Caption panel dimensions
 _CAPTION_PANEL_W = TARGET_WIDTH          # 1080
-_CAPTION_PANEL_H = 480                   # tall enough for 3 wrapped lines
-_CAPTION_FONT_SIZE = 72
-_CAPTION_PADDING_X = 48
-_CAPTION_PADDING_Y = 30
-_CAPTION_BG_COLOR = (0, 0, 0, 170)       # semi-transparent black pill
-_CAPTION_BG_RADIUS = 28                  # pill corner radius
-_CAPTION_TEXT_COLOR = (255, 255, 255, 255)
+_CAPTION_PANEL_H = 500                   # tall enough for 3 wrapped lines
+_CAPTION_FONT_SIZE = 80                  # bigger = more comedic impact
+_CAPTION_PADDING_X = 52
+_CAPTION_PADDING_Y = 32
+_CAPTION_BG_COLOR = (10, 10, 10, 185)    # near-black pill, high contrast
+_CAPTION_BG_RADIUS = 32                  # pill corner radius
+_CAPTION_TEXT_COLOR = (255, 230, 0, 255) # BRIGHT YELLOW — comedy gold
 _CAPTION_STROKE_COLOR = (0, 0, 0, 255)
-_CAPTION_STROKE_WIDTH = 3
+_CAPTION_STROKE_WIDTH = 5               # chunky stroke for maximum pop
 
 # How far up from the bottom of the full frame the caption panel sits (px)
-_CAPTION_BOTTOM_OFFSET = 220
+_CAPTION_BOTTOM_OFFSET = 160
 
 def _ken_burns_zoom(
     clip: "VideoFileClip",

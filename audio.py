@@ -6,9 +6,9 @@ import edge_tts
 from config import PipelineConfig, SrtCue, logger
 
 def generate_voice_and_captions(config: PipelineConfig, script: str) -> tuple[Path, Path] | tuple[None, None]:
-    # Target 30 seconds — the research-backed sweet spot for Shorts completion rate.
-    # 150 WPM × 0.5 min = 75 words maximum before padding is needed.
-    script = _stretch_script_to_target(script, target_seconds=30, wpm=150)
+    # Target 30 seconds — the sweet spot for Shorts completion rate.
+    # Comedic delivery needs ~155 WPM to feel snappy, not sleepy.
+    script = _stretch_script_to_target(script, target_seconds=30, wpm=155)
     try:
         asyncio.run(_generate_audio_and_srt(config.voice, script, config.output_audio, config.output_srt))
         return config.output_audio, config.output_srt
@@ -25,12 +25,16 @@ def _stretch_script_to_target(script: str, *, target_seconds: float = 30.0, wpm:
     if len(words) >= target_words:
         return script
 
+    # Comedy-flavored filler lines — unhinged, punchy, and on-brand chaos.
+    # These kick in if the script is under ~77 words to hit the 30s target.
     fillers = [
-        "But wait, it actually gets worse.",
-        "I know, right? Completely unhinged.",
-        "So that's a thing now.",
-        "Just let that sink in for a second.",
-        "Honestly, you can't even make this up.",
+        "And I CANNOT stress this enough.",
+        "The audacity. The absolute audacity.",
+        "Nobody is talking about this. Nobody.",
+        "I'm not okay and neither should you be.",
+        "Anyway, that's just Tuesday apparently.",
+        "This is fine. Everything is completely fine.",
+        "The chaos never stops. It only gets louder.",
     ]
     i = 0
     while len(words) < target_words:
@@ -48,8 +52,9 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
     clean_script = re.sub(r'["\'\(\)\[\]]', '', clean_script)
     clean_script = re.sub(r'\s+', ' ', clean_script).strip()
 
-    # Increase rate to sound more conversational and less like a robotic reading
-    communicate = edge_tts.Communicate(clean_script, voice, rate="+15%", boundary="WordBoundary")
+    # +22% rate: snappy, punchy comedic delivery — not robotic, not slow.
+    # Pitch left at default; Tony's natural voice already has great comic energy.
+    communicate = edge_tts.Communicate(clean_script, voice, rate="+22%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
 
     with audio_path.open("wb") as audio_file:

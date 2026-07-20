@@ -223,12 +223,17 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             client = groq.Groq(api_key=config.groq_api_key)
             response = client.chat.completions.create(
                 messages=[
-                    {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
+                    {"role": "system", "content": (
+                        "You are a completely unhinged, wildly chaotic comedy writer for YouTube Shorts. "
+                        "Your job is to produce the most absurd, hilarious, and deeply weird short-form scripts possible. "
+                        "Think: conspiracy theorist who's had 12 espressos, aggressively sarcastic, vivid hyperbolic imagery. "
+                        "You ONLY output pure JSON — no markdown fences, no extra text, just raw JSON."
+                    )},
                     {"role": "user", "content": prompt}
                 ],
                 model="llama-3.1-8b-instant",
                 temperature=1.0,
-                max_tokens=500,
+                max_tokens=800,
             )
             raw_text = response.choices[0].message.content
             if raw_text:
@@ -244,12 +249,17 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                 strict_prompt = prompt + " Output valid JSON only. No leading or trailing text."
                 response = client.chat.completions.create(
                     messages=[
-                        {"role": "system", "content": "You are a witty, cynical writer for YouTube Shorts. You only output pure JSON, with no markdown fences or extra text."},
+                        {"role": "system", "content": (
+                            "You are a completely unhinged, wildly chaotic comedy writer for YouTube Shorts. "
+                            "Your job is to produce the most absurd, hilarious, and deeply weird short-form scripts possible. "
+                            "Think: conspiracy theorist who's had 12 espressos, aggressively sarcastic, vivid hyperbolic imagery. "
+                            "You ONLY output pure JSON — no markdown fences, no extra text, just raw JSON."
+                        )},
                         {"role": "user", "content": strict_prompt}
                     ],
                     model="llama-3.1-8b-instant",
                     temperature=0.8,
-                    max_tokens=500,
+                    max_tokens=800,
                 )
                 raw_text = response.choices[0].message.content
                 if raw_text:

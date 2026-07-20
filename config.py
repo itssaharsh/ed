@@ -11,46 +11,49 @@ logger = logging.getLogger(__name__)
 
 TARGET_WIDTH = 1080
 TARGET_HEIGHT = 1920
-DEFAULT_VOICE = "en-US-BrianNeural"
+# en-US-TonyNeural: upbeat, punchy American male — ideal for fast-paced comedy shorts
+DEFAULT_VOICE = "en-US-TonyNeural"
 DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
 
 
+# Categories: (id, weight, description, video_search_terms, hashtags)
+# All categories are comedy-first — chaos, absurdity, and unhinged takes only.
 _CONTENT_CATEGORIES: list[tuple[str, int, str, list[str], str]] = [
     (
         "relatable_comedy",
-        25,
-        "everyday absurdities, awkward social interactions, unspoken rules of society, stand-up observational humor",
+        28,
+        "everyday absurdities, awkward social interactions, unspoken rules of society, stand-up observational humor — the weirder and more niche the better",
         ["coffee", "office", "crowd", "awkward", "city", "smartphone"],
         "#shorts #comedy #relatable #funny #standup #humor #introvert",
     ),
     (
         "dark_humor",
-        25,
-        "cynical takes on modern life, existential dread masked as comedy, sarcastic observations about adulthood",
+        27,
+        "cynical takes on modern life, existential dread masked as comedy, sarcastic observations about adulthood and the crushing weight of existence",
         ["rain", "commute", "clock", "boredom", "shadow", "empty street"],
         "#shorts #darkhumor #cynical #funny #sarcasm #adulthood #relatable",
     ),
     (
         "corporate_satire",
         20,
-        "mocking office culture, passive-aggressive emails, pointless meetings, corporate jargon",
+        "mocking office culture, passive-aggressive emails, pointless meetings, corporate jargon, the absurdity of synergizing your bandwidth",
         ["office", "laptop", "meeting", "shaking hands", "business", "coffee"],
         "#shorts #corporate #officehumor #worklife #comedy #satire #relatable",
     ),
     (
         "modern_dating",
-        15,
-        "the horrors of dating apps, awful first dates, texting anxiety, cynical romance",
+        12,
+        "the horrors of dating apps, awful first dates, texting anxiety, cynical romance — love is a scam and we have receipts",
         ["restaurant", "smartphone", "couple", "nightclub", "coffee shop"],
         "#shorts #dating #datinghumor #relationships #comedy #funny #datingapps",
     ),
     (
         "internet_culture",
-        15,
-        "doomscrolling, social media addiction, influencer absurdity, chronically online behavior",
+        13,
+        "doomscrolling, social media addiction, influencer absurdity, chronically online behavior — your brain is now 80% TikTok sound effects",
         ["smartphone", "scrolling", "neon", "typing", "computer", "glowing screen"],
         "#shorts #internet #socialmedia #doomscrolling #comedy #relatable #satire",
     ),
