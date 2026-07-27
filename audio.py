@@ -62,23 +62,16 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
 
     cleaned_parts = [_clean_part(p) for p in raw_parts]
 
-    # Handle [PAUSE] tag — the LLM inserts this before the punchline.
-    # Wrap in SSML so edge_tts renders it as a genuine 900ms silence break.
-    # NOTE: clean_script is set for the non-pause path; SSML path uses cleaned_parts.
-    clean_script = cleaned_parts[0]  # used if no pause
-
+    # Handle [PAUSE] tag — edge-tts treats text as raw strings, so SSML tags
+    # like <speak> will be read aloud as "less than speak".
+    # Instead, we use strong punctuation (repeated periods) to force a natural pause.
     if has_pause and len(cleaned_parts) == 2:
-        ssml_script = (
-            f"<speak>"
-            f"<s>{cleaned_parts[0].strip()}</s>"
-            f"<break time=\"900ms\"/>"
-            f"<s>{cleaned_parts[1].strip()}</s>"
-            f"</speak>"
-        )
-        communicate = edge_tts.Communicate(ssml_script, voice, rate="+18%", boundary="WordBoundary")
+        clean_script = f"{cleaned_parts[0].strip()} ... ... ... {cleaned_parts[1].strip()}"
     else:
-        # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
-        communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
+        clean_script = cleaned_parts[0]
+
+    # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
+    communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
 
     with audio_path.open("wb") as audio_file:
