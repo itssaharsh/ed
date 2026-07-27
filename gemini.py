@@ -70,7 +70,7 @@ def _build_prompt(category_id: str, category_desc: str, hashtags: str) -> str:
 
         "EXAMPLE OUTPUT (exact JSON structure). "
         "CRITICAL: FORMATTING EXAMPLE ONLY. DO NOT COPY THIS TOPIC. WRITE ABOUT THE SPECIFIED CATEGORY:\n"
-        '{"title": "Bro Tried To Meal Prep And Almost Died \ud83d\udd25 #shorts", '
+        '{"title": "Bro Tried To Meal Prep And Almost Died 🔥 #shorts", '
         '"description": "Some people have a gift. His gift is chaos and a very patient fire department.\\n'
         '#shorts #comedy #relatable #funny #darkhumor", '
         '"script": "Ever met someone who treats the kitchen like a crime scene? Like my buddy Mark. '
