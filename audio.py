@@ -64,9 +64,9 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
 
     # Handle [PAUSE] tag — edge-tts treats text as raw strings, so SSML tags
     # like <speak> will be read aloud as "less than speak".
-    # Instead, we use strong punctuation (repeated periods) to force a natural pause.
+    # We just use a period to force a natural sentence break.
     if has_pause and len(cleaned_parts) == 2:
-        clean_script = f"{cleaned_parts[0].strip()} ... ... ... {cleaned_parts[1].strip()}"
+        clean_script = f"{cleaned_parts[0].strip()}. {cleaned_parts[1].strip()}"
     else:
         clean_script = cleaned_parts[0]
 
