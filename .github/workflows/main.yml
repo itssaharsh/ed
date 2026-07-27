@@ -8,6 +8,9 @@ on:
     # NOTE: cron '17 */4 * * *' = minute 17 of every 4th hour (0,4,8,12,16,20).
     - cron: '*/25 * * * *'
   workflow_dispatch: # Allows you to trigger a run manually from the GitHub UI
+  push:
+    branches:
+      - main
 
 jobs:
   run-bot:
