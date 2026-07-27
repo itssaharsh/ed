@@ -287,7 +287,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                     {"role": "user", "content": prompt}
                 ],
                 model="llama-3.1-8b-instant",
-                temperature=0.7,
+                temperature=0.2,
                 max_tokens=900,
             )
             raw_text = response.choices[0].message.content
@@ -314,7 +314,7 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
                         {"role": "user", "content": strict_prompt}
                     ],
                     model="llama-3.1-8b-instant",
-                    temperature=0.5,
+                    temperature=0.1,
                     max_tokens=800,
                 )
                 raw_text = response.choices[0].message.content
