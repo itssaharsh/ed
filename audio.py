@@ -56,7 +56,7 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
 
     def _clean_part(text: str) -> str:
         t = re.sub(r'\*.*?\*', '', text)
-        t = re.sub(r'[\.\\-—_…]{2,}', ',', t)
+        t = re.sub(r'[\.—_…-]{2,}', ',', t)
         t = re.sub(r'[\"\'()[\]]', '', t)
         return re.sub(r'\s+', ' ', t).strip()
 
@@ -70,6 +70,7 @@ async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt
     else:
         clean_script = cleaned_parts[0]
 
+    # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
     # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
     communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
