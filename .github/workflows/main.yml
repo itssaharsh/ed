@@ -36,22 +36,34 @@ jobs:
           PEXELS_API_KEY: ${{ secrets.PEXELS_API_KEY }}
           YOUTUBE_CLIENT_SECRETS_JSON: ${{ secrets.YOUTUBE_CLIENT_SECRETS_JSON }}
           YOUTUBE_CREDENTIALS_JSON: ${{ secrets.YOUTUBE_CREDENTIALS_JSON }}
+          YOUTUBE_CREDENTIALS_JSON_2: ${{ secrets.YOUTUBE_CREDENTIALS_JSON_2 }}
         run: |
           echo "$YOUTUBE_CLIENT_SECRETS_JSON" > client_secrets.json
-          echo "$YOUTUBE_CREDENTIALS_JSON" > credentials.json
+          echo "$YOUTUBE_CREDENTIALS_JSON" > credentials_1.json
+          echo "$YOUTUBE_CREDENTIALS_JSON_2" > credentials_2.json
           export YOUTUBE_CLIENT_SECRETS_PATH=client_secrets.json
-          export YOUTUBE_CREDENTIALS_PATH=credentials.json
+          export YOUTUBE_CREDENTIALS_PATH_1=credentials_1.json
+          export YOUTUBE_CREDENTIALS_PATH_2=credentials_2.json
           
           python main.py
           # Propagate the Python exit code so the Actions job turns red on upload failure
           exit $?
 
-      - name: Permanently Update YouTube Credentials Secret
+      - name: Permanently Update YouTube Credentials Secret 1
         # ONLY run this step if main.py successfully generated and passed a new token
-        if: steps.python_step.outputs.new_youtube_creds != ''
+        if: steps.python_step.outputs.new_youtube_creds_1 != ''
         env:
           GH_TOKEN: ${{ secrets.GH_PAT }} 
-          NEW_CREDS: ${{ steps.python_step.outputs.new_youtube_creds }}
+          NEW_CREDS: ${{ steps.python_step.outputs.new_youtube_creds_1 }}
         run: |
           gh secret set YOUTUBE_CREDENTIALS_JSON --body "$NEW_CREDS" --repo ${{ github.repository }}
-          echo "Successfully updated YouTube credentials in GitHub Secrets!"
+          echo "Successfully updated YouTube credentials 1 in GitHub Secrets!"
+
+      - name: Permanently Update YouTube Credentials Secret 2
+        if: steps.python_step.outputs.new_youtube_creds_2 != ''
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }} 
+          NEW_CREDS: ${{ steps.python_step.outputs.new_youtube_creds_2 }}
+        run: |
+          gh secret set YOUTUBE_CREDENTIALS_JSON_2 --body "$NEW_CREDS" --repo ${{ github.repository }}
+          echo "Successfully updated YouTube credentials 2 in GitHub Secrets!"

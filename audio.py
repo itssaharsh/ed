@@ -46,15 +46,39 @@ def _stretch_script_to_target(script: str, *, target_seconds: float = 30.0, wpm:
 async def _generate_audio_and_srt(voice: str, script: str, audio_path: Path, srt_path: Path) -> None:
     audio_path.parent.mkdir(parents=True, exist_ok=True)
     
-    # Strip out sound effects (asterisks) and robotic punctuation (ellipses, dashes, brackets)
-    clean_script = re.sub(r'\*.*?\*', '', script)
-    clean_script = re.sub(r'[\.\-—_…]{2,}', ',', clean_script)
-    clean_script = re.sub(r'["\'\(\)\[\]]', '', clean_script)
-    clean_script = re.sub(r'\s+', ' ', clean_script).strip()
+    # Extract [PAUSE] BEFORE bracket stripping — otherwise it gets destroyed.
+    # We split on the raw marker first, clean each part, then reassemble.
+    has_pause = "[PAUSE]" in script
+    if has_pause:
+        raw_parts = script.split("[PAUSE]", 1)
+    else:
+        raw_parts = [script]
 
-    # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
-    # Matches the crisp, articulate TTS delivery of the reference video.
-    communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
+    def _clean_part(text: str) -> str:
+        t = re.sub(r'\*.*?\*', '', text)
+        t = re.sub(r'[\.\\-—_…]{2,}', ',', t)
+        t = re.sub(r'[\"\'()[\]]', '', t)
+        return re.sub(r'\s+', ' ', t).strip()
+
+    cleaned_parts = [_clean_part(p) for p in raw_parts]
+
+    # Handle [PAUSE] tag — the LLM inserts this before the punchline.
+    # Wrap in SSML so edge_tts renders it as a genuine 900ms silence break.
+    # NOTE: clean_script is set for the non-pause path; SSML path uses cleaned_parts.
+    clean_script = cleaned_parts[0]  # used if no pause
+
+    if has_pause and len(cleaned_parts) == 2:
+        ssml_script = (
+            f"<speak>"
+            f"<s>{cleaned_parts[0].strip()}</s>"
+            f"<break time=\"900ms\"/>"
+            f"<s>{cleaned_parts[1].strip()}</s>"
+            f"</speak>"
+        )
+        communicate = edge_tts.Communicate(ssml_script, voice, rate="+18%", boundary="WordBoundary")
+    else:
+        # +18% rate: fast enough to feel punchy, slow enough to stay conversational.
+        communicate = edge_tts.Communicate(clean_script, voice, rate="+18%", boundary="WordBoundary")
     submaker = edge_tts.SubMaker()
 
     with audio_path.open("wb") as audio_file:

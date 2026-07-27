@@ -29,6 +29,8 @@ _CAPTION_TEXT_COLOR = (255, 255, 255, 255)  # crisp white
 _CAPTION_STROKE_COLOR = (0, 0, 0, 255)
 _CAPTION_STROKE_WIDTH = 6         # thick stroke so it pops on any background
 _CAPTION_WORDS_PER_BURST = 2      # words shown simultaneously
+# Punchline words render in this color — bright red for maximum comedic emphasis
+_CAPTION_EMPHASIS_COLOR = (255, 30, 30, 255)
 
 def _ken_burns_zoom(
     clip: "VideoFileClip",
@@ -143,12 +145,13 @@ def assemble_video(
     background_paths: "list[Path] | Path",
     audio_path: Path,
     srt_path: Path,
+    punchline_words: "set[str] | frozenset[str] | None" = None,
 ) -> Path | None:
     """Assemble the final Short from multiple background clips + audio + captions.
 
-    Each background clip gets an equal share of the total duration and has its
-    own Ken Burns zoom direction (alternating in/out) so the video feels
-    dynamic without any looping or frame repetition.
+    Args:
+        punchline_words: Optional set of uppercase words to render in red.
+                         Supplied from ContentBrief.punchline_words.
     """
     # Normalise to list
     if isinstance(background_paths, Path):
@@ -163,7 +166,12 @@ def assemble_video(
 
         # ── Word-burst captions — group individual words into 2-word pops ────
         word_cues = _parse_srt_file(srt_path)
-        subtitle_cues = _group_word_cues(word_cues, words_per_group=_CAPTION_WORDS_PER_BURST)
+        emphasis_set: set[str] = set(punchline_words) if punchline_words else set()
+        subtitle_cues = _group_word_cues(
+            word_cues,
+            words_per_group=_CAPTION_WORDS_PER_BURST,
+            emphasis_words=emphasis_set,
+        )
         subtitle_clips = [_subtitle_clip_for_cue(cue) for cue in subtitle_cues]
 
         # ── Determine total video duration ───────────────────────────────────
@@ -257,30 +265,35 @@ def assemble_video(
         logger.error("Video assembly failed: %s", exc)
         return None
 
-def _group_word_cues(cues: list[SrtCue], words_per_group: int = 2) -> list[SrtCue]:
+def _group_word_cues(
+    cues: list[SrtCue],
+    words_per_group: int = 2,
+    emphasis_words: "set[str] | None" = None,
+) -> list[SrtCue]:
     """Group per-word SRT cues into N-word burst captions.
 
-    edge_tts with WordBoundary emits one SRT entry per word.  Grouping
-    them into pairs of 2 creates the snappy pop-up caption style seen in
-    the reference video and virtually every viral Short/Reel.
-    Text is UPPERCASED for maximum visual impact.
+    If any word in a burst matches an entry in *emphasis_words* (case-insensitive),
+    the resulting SrtCue is flagged with is_emphasis=True so it renders in red.
     """
     if not cues:
         return []
+    emphasis_upper: set[str] = {w.upper() for w in (emphasis_words or set())}
     grouped: list[SrtCue] = []
     for i in range(0, len(cues), words_per_group):
         chunk = cues[i : i + words_per_group]
         text = " ".join(c.text for c in chunk).upper()
         start = chunk[0].start
         end = chunk[-1].end
-        # Give each burst at least 0.25s on screen so fast words are readable
         end = max(end, start + 0.25)
-        grouped.append(SrtCue(start=start, end=end, text=text))
+        # Flag as emphasis if any word in this burst is a punchline word
+        is_emphasis = bool(emphasis_upper and any(w in emphasis_upper for w in text.split()))
+        grouped.append(SrtCue(start=start, end=end, text=text, is_emphasis=is_emphasis))
     return grouped
 
 
 def _subtitle_clip_for_cue(cue: SrtCue) -> ImageClip:
-    image_path = _render_caption_image(cue.text)
+    color = _CAPTION_EMPHASIS_COLOR if cue.is_emphasis else _CAPTION_TEXT_COLOR
+    image_path = _render_caption_image(cue.text, color=color)
     clip = (
         ImageClip(str(image_path))
         .with_start(cue.start)
@@ -306,19 +319,27 @@ def _draw_rounded_rect(
     draw.rectangle((x0 + radius, y0, x1 - radius, y1), fill=fill)
     draw.rectangle((x0, y0 + radius, x1, y1 - radius), fill=fill)
 
-def _render_caption_image(text: str) -> Path:
+def _render_caption_image(
+    text: str,
+    color: tuple[int, int, int, int] = _CAPTION_TEXT_COLOR,
+) -> Path:
     """Render a word-burst caption as a transparent PNG.
 
-    Style: bold uppercase white text with thick black stroke on a fully
-    transparent background.  No pill — the text floats cleanly over the
-    video footage, exactly like the reference Short.
+    Args:
+        text:  The caption text (already uppercased).
+        color: RGBA fill color. White for normal, red for punchline emphasis.
+
+    Style: bold uppercase text with thick black stroke on a fully transparent
+    background.  No pill — text floats cleanly over footage.
     """
     temp_dir = Path(__file__).resolve().parent / "_caption_cache"
     temp_dir.mkdir(parents=True, exist_ok=True)
-    file_name = f"caption_{abs(hash(text))}.png"
+    # Include color in the cache key so white and red versions don't collide
+    color_tag = "em" if color == _CAPTION_EMPHASIS_COLOR else "norm"
+    file_name = f"caption_{abs(hash(text))}_{color_tag}.png"
     output_path = temp_dir / file_name
     if output_path.exists():
-        return output_path  # use cache to avoid re-rendering duplicates
+        return output_path  # cache hit
 
     font = _load_caption_font(_CAPTION_FONT_SIZE)
 
@@ -343,12 +364,12 @@ def _render_caption_image(text: str) -> Path:
     text_x = (canvas_w - text_w) / 2
     text_y = _CAPTION_PADDING_Y
 
-    # Main text: white fill + thick black stroke (no separate shadow needed)
+    # Main text: dynamic fill color (white normally, red for punchline words)
     draw.multiline_text(
         (text_x, text_y),
         wrapped_text,
         font=font,
-        fill=_CAPTION_TEXT_COLOR,
+        fill=color,
         spacing=8,
         align="center",
         stroke_width=_CAPTION_STROKE_WIDTH,

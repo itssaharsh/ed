@@ -1,3 +1,4 @@
+import os
 import sys
 import logging
 from config import build_config, logger
@@ -27,15 +28,34 @@ def main() -> int:
             logger.error("Failed to download background clips.")
             sys.exit(1)
 
-        final_video_path = assemble_video(config, background_paths, audio_path, srt_path)
+        final_video_path = assemble_video(
+            config,
+            background_paths,
+            audio_path,
+            srt_path,
+            punchline_words=set(brief.punchline_words),
+        )
         if final_video_path is None:
             logger.error("Failed to assemble video.")
             sys.exit(1)
 
-        upload_ok = upload_to_youtube(config, final_video_path, brief.title, brief.description)
-        if not upload_ok:
-            logger.error("Failed to upload to YouTube.")
+        creds_1 = Path(os.getenv("YOUTUBE_CREDENTIALS_PATH_1", "credentials_1.json"))
+        creds_2 = Path(os.getenv("YOUTUBE_CREDENTIALS_PATH_2", "credentials_2.json"))
+
+        logger.info("Uploading to Channel 1...")
+        upload_ok_1 = upload_to_youtube(config, final_video_path, brief.title, brief.description, creds_1, "1")
+        if not upload_ok_1:
+            logger.error("Failed to upload to YouTube Channel 1.")
+
+        logger.info("Uploading to Channel 2...")
+        upload_ok_2 = upload_to_youtube(config, final_video_path, brief.title, brief.description, creds_2, "2")
+        if not upload_ok_2:
+            logger.error("Failed to upload to YouTube Channel 2.")
+
+        if not upload_ok_1 and not upload_ok_2:
+            logger.error("Both YouTube uploads failed.")
             sys.exit(1)
+            
         return 0
     except Exception as exc:
         logger.exception("Unhandled pipeline error: %s", exc)

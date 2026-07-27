@@ -14,14 +14,14 @@ from googleapiclient.http import MediaFileUpload
 from config import PipelineConfig, YOUTUBE_UPLOAD_SCOPE, logger
 from utils import _ensure_shorts_tag, _ensure_shorts_hashtag
 
-def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, description: str) -> bool:
+def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, description: str, creds_path: Path, creds_id: str) -> bool:
     """Upload *video_path* to YouTube. Returns True on success, False on any failure."""
-    if not config.youtube_credentials.exists():
-        logger.error("YouTube credentials file is missing at %s. Skipping upload.", config.youtube_credentials)
+    if not creds_path.exists():
+        logger.error("YouTube credentials file is missing at %s. Skipping upload.", creds_path)
         return False
 
     try:
-        credentials = Credentials.from_authorized_user_file(str(config.youtube_credentials), scopes=[YOUTUBE_UPLOAD_SCOPE])
+        credentials = Credentials.from_authorized_user_file(str(creds_path), scopes=[YOUTUBE_UPLOAD_SCOPE])
 
         if credentials.expired and credentials.refresh_token:
             logger.info("YouTube token expired. Refreshing token...")
@@ -53,7 +53,7 @@ def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, desc
                 return False
 
             new_creds_json = credentials.to_json()
-            config.youtube_credentials.write_text(new_creds_json, encoding="utf-8")
+            creds_path.write_text(new_creds_json, encoding="utf-8")
 
             # Write the new token to GITHUB_OUTPUT so the workflow file can capture and save it permanently.
             # NOTE: This block must remain AFTER a successful refresh (not inside the try above)
@@ -61,8 +61,8 @@ def upload_to_youtube(config: PipelineConfig, video_path: Path, title: str, desc
             github_output = os.environ.get("GITHUB_OUTPUT")
             if github_output:
                 with open(github_output, "a", encoding="utf-8") as f:
-                    delimiter = "EOF_CREDS"
-                    f.write(f"new_youtube_creds<<{delimiter}\n{new_creds_json}\n{delimiter}\n")
+                    delimiter = f"EOF_CREDS_{creds_id}"
+                    f.write(f"new_youtube_creds_{creds_id}<<{delimiter}\n{new_creds_json}\n{delimiter}\n")
                 logger.info("Exported updated credentials to GITHUB_OUTPUT for GitHub Actions to capture.")
 
         youtube = build("youtube", "v3", credentials=credentials)

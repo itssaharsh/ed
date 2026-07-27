@@ -86,12 +86,16 @@ class ContentBrief:
     # Tuple of 8 stock-footage search terms — one per 3-4 second video cut.
     # Using tuple (not list) so the frozen dataclass remains hashable.
     video_keywords: tuple[str, ...] = ()
+    # 3-5 most ridiculous words to be highlighted in red in captions.
+    punchline_words: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class SrtCue:
     start: float
     end: float
     text: str
+    # Set to True when this burst contains a punchline word — renders in red.
+    is_emphasis: bool = False
 
 def build_config() -> PipelineConfig:
     workspace = Path(__file__).resolve().parent
