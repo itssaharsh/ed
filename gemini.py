@@ -101,6 +101,7 @@ def _call_gemini(api_key: str, model_name: str, prompt: str, temperature: float)
             temperature=temperature,
             top_p=0.95 if temperature == 1.0 else 0.9,
             max_output_tokens=2048,
+            response_mime_type="application/json",
             safety_settings=safety_settings
         )
     )
@@ -207,7 +208,6 @@ def generate_content_brief(config: PipelineConfig) -> ContentBrief | None:
             # De-duplicate candidate models to prevent burning API quota on retries
             base_models = [
                 config.gemini_model,
-                "gemini-2.5-flash",
                 "gemini-2.0-flash",
                 "gemini-1.5-flash",
                 "gemini-1.5-pro"

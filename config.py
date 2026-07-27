@@ -14,7 +14,7 @@ TARGET_HEIGHT = 1920
 # en-US-GuyNeural: crisp, articulate, conversational American male voice
 # Perfect for the "roasting a friend" stand-up storytelling style of the reference video.
 DEFAULT_VOICE = "en-US-GuyNeural"
-DEFAULT_GEMINI_MODEL = "gemini-2.5-flash"
+DEFAULT_GEMINI_MODEL = "gemini-2.0-flash"
 DEFAULT_PRIVACY_STATUS = "public"
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 PEXELS_VIDEO_SEARCH_URL = "https://api.pexels.com/videos/search"
