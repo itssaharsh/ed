@@ -35,8 +35,14 @@ and branch. There is no user; never ask. Your routine prompt gave you `ROLE`,
 | `.venv/bin/python run.py --doctor` | keys for a full report | shows exactly which providers are missing here |
 | `tests/validate_prompts.py`, `run.py` without `--brief` | `GEMINI_API_KEY` | **cannot run here** — say so, do not fake it |
 
-A `403 host_not_allowed` means the sandbox network policy, not the product:
-record it in the results file and end with `BLOCKED-NETWORK`.
+A `403` from the proxy (no `x-deny-reason` header is returned) means the
+sandbox network policy, not the product. Probe 2026-09-06: pypi, npm and
+`generativelanguage.googleapis.com` are reachable; `image.pollinations.ai`,
+`speech.platform.bing.com` and `api.groq.com` are 403 until Saharsh sets the
+environment to Full network. So the keyless real render may not be possible
+here yet: run everything that is offline, record the 403 verbatim, and end
+with `BLOCKED-NETWORK` only if your unit's deliverable itself needs that host.
+The controller sends `/effort max` to your session after it starts.
 
 ## 3. Branch protocol and file ownership
 
