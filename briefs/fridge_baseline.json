@@ -1,0 +1,45 @@
+{
+  "_note": "Hand-authored brief. Mechanism: a person applying a system with total sincerity to something that does not need one. The joke is escalation of bureaucracy onto an object that cannot spoil, ending on the system eating itself.",
+  "premise": {
+    "situation": "A man in the office puts masking-tape dates on every item in the shared fridge",
+    "turn": "He ends up dating things that cannot expire, and finally the fridge itself",
+    "detail": "a date written on a jar of mustard",
+    "mechanism": "bad system",
+    "target": "stranger"
+  },
+  "style": "flat_absurd",
+  "character_sheet": "a man in his late thirties, thinning hair, tucked-in polo shirt, lanyard",
+  "beats": [
+    {"role": "hook",     "text": "There is a man at my office who puts dates on the fridge."},
+    {"role": "setup",    "text": "Not his name on the tape. The date. Every container, same handwriting."},
+    {"role": "escalate", "text": "Last Tuesday I found a date on a jar of mustard."},
+    {"role": "escalate", "text": "Mustard does not expire. Mustard will outlive this building."},
+    {"role": "escalate", "text": "I asked him about it and he got out his phone and showed me a photo of the shelf."},
+    {"role": "turn",     "text": "He said, and I am quoting him exactly, we needed a baseline."},
+    {"role": "punch",    "text": "There is now a date on the fridge."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["DATES"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["HANDWRITING"]},
+    {"index": 2, "pause_before_ms": 110, "emphasis": ["MUSTARD"]},
+    {"index": 3, "pause_before_ms": 110, "emphasis": ["OUTLIVE"]},
+    {"index": 4, "pause_before_ms": 120, "emphasis": ["PHOTO"]},
+    {"index": 5, "pause_before_ms": 300, "direction": "flat", "emphasis": ["BASELINE"]},
+    {"index": 6, "pause_before_ms": 600, "direction": "deadpan", "emphasis": ["FRIDGE"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "wide",          "motion": "push-in",       "prompt": "wide shot of a man standing squarely in front of a large office fridge, flat blank stare directly at camera, arms at his sides, strip lighting overhead", "why_this_image": "the deadpan stare is the whole tone in one frame"},
+    {"line_index": 1, "shot_size": "extreme-close", "motion": "drift-left",    "prompt": "extreme close up of a strip of masking tape stuck to a plastic food container, a short handwritten scrawl on it, hard side light", "why_this_image": "shows the system without needing readable text"},
+    {"line_index": 2, "shot_size": "close",         "motion": "pull-out",      "prompt": "close up of a squat glass jar of yellow mustard alone on a bare wire shelf, a strip of tape across its lid, cold light", "why_this_image": "the absurd object, isolated so it lands"},
+    {"line_index": 3, "shot_size": "wide",          "motion": "static-float",  "prompt": "wide shot of an enormous empty concrete building interior with one tiny jar of mustard on the floor in the centre, dramatic scale", "why_this_image": "literalises outliving the building"},
+    {"line_index": 4, "shot_size": "over-shoulder", "motion": "drift-right",   "prompt": "over the shoulder view of a man holding up a phone showing a photograph of a fridge shelf, his other hand gesturing in explanation", "why_this_image": "the escalation: he has documentation"},
+    {"line_index": 5, "shot_size": "medium",        "motion": "push-in",       "prompt": "medium shot of a man speaking earnestly straight to camera, both palms open in front of him, utterly sincere expression", "why_this_image": "sincerity is what makes the line funny"},
+    {"line_index": 6, "shot_size": "wide",          "motion": "static-float",  "prompt": "wide shot of a closed office fridge alone in an empty kitchen, one strip of masking tape stuck across the middle of its door", "why_this_image": "the visual gag must not be seen before the punch"}
+  ],
+  "metadata": {
+    "title": "the guy at my office put a date on the mustard #shorts",
+    "description_hook": "He has never once eaten anything from that fridge.",
+    "hashtags": "#shorts #comedy #officehumor #worklife #relatable #standup",
+    "tags": ["comedy", "shorts", "office humor", "work", "relatable", "standup", "observational"]
+  }
+}

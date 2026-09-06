@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: sincere wrong effort. He is genuinely trying to be tidy; the method is insane. Ends on the reveal that the system has consumed the thing it was meant to simplify.",
+  "premise": {
+    "situation": "A man owns one pan and washes it immediately after every use so he never has washing up",
+    "turn": "He now plans meals around what the single pan can do and eats standing at the sink",
+    "detail": "he dries it and puts it away before he sits down to eat",
+    "mechanism": "sincere wrong effort",
+    "target": "friend"
+  },
+  "style": "grain_docu",
+  "character_sheet": "a man in his thirties, short hair, plain t-shirt, small tidy kitchen",
+  "beats": [
+    {"role": "hook",     "text": "My flatmate owns one pan. On purpose."},
+    {"role": "setup",    "text": "He says if you only own one pan you never have washing up."},
+    {"role": "escalate", "text": "Which is true. Because he washes it while the food is still cooking."},
+    {"role": "escalate", "text": "He dries it and puts it away before he has eaten anything."},
+    {"role": "escalate", "text": "He now plans his meals around what one pan can physically do."},
+    {"role": "turn",     "text": "I asked him if he wanted a second pan for his birthday."},
+    {"role": "punch",    "text": "He looked at me like I had offered him a debt."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["PURPOSE"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["WASHING"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["COOKING"]},
+    {"index": 3, "pause_before_ms": 130, "emphasis": ["EATEN"]},
+    {"index": 4, "pause_before_ms": 120, "emphasis": ["PHYSICALLY"]},
+    {"index": 5, "pause_before_ms": 290, "direction": "flat", "emphasis": ["BIRTHDAY"]},
+    {"index": 6, "pause_before_ms": 600, "direction": "deadpan", "emphasis": ["DEBT"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of a single frying pan hanging alone on an otherwise completely empty kitchen wall, soft window light"},
+    {"line_index": 1, "shot_size": "medium", "motion": "drift-right", "prompt": "medium shot of a man leaning against a kitchen counter explaining something with calm total conviction, one finger raised"},
+    {"line_index": 2, "shot_size": "close", "motion": "pull-out", "prompt": "close up of hands scrubbing a pan under a running tap while steam rises from a plate of food behind them"},
+    {"line_index": 3, "shot_size": "medium", "motion": "static-float", "prompt": "medium shot of a man carefully placing a dry pan into an empty cupboard, an untouched plate of food on the counter behind him"},
+    {"line_index": 4, "shot_size": "wide", "motion": "drift-left", "prompt": "wide shot of a man standing at a sink eating from a plate, kitchen spotless and bare, nothing on any surface"},
+    {"line_index": 5, "shot_size": "close", "motion": "push-in", "prompt": "close up of a brand new frying pan sitting in an open gift box with tissue paper around it"},
+    {"line_index": 6, "shot_size": "close", "motion": "static-float", "prompt": "close up of a man's face looking down at something off camera with genuine quiet horror, no exaggeration"}
+  ],
+  "metadata": {
+    "title": "my flatmate owns one pan and it has taken over his life #shorts",
+    "description_hook": "He washes it while the food is still cooking. That is the system.",
+    "hashtags": "#shorts #comedy #relatable #funny #flatmates #standup",
+    "tags": ["comedy", "shorts", "relatable", "flatmates", "cooking", "funny", "observational"]
+  }
+}

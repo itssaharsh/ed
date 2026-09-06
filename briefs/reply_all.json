@@ -1,0 +1,42 @@
+{
+  "_note": "4 shots, sparse. Mechanism: bad system. The all-staff email cascade — each person trying to stop it makes it worse. Ends on the narrator becoming part of the problem.",
+  "premise": {
+    "situation": "Someone replies all to a company-wide email asking to be removed from the list",
+    "turn": "Forty people reply all telling everyone to stop replying all",
+    "detail": "one person replies all with the single word 'unsubscribe'",
+    "mechanism": "bad system",
+    "target": "institution"
+  },
+  "style": "flat_absurd",
+  "character_sheet": "a woman in her thirties, glasses, cardigan, sitting at an office desk",
+  "beats": [
+    {"role": "hook",     "text": "Somebody replied all to four hundred people this morning."},
+    {"role": "setup",    "text": "To ask to be taken off the list. Which is a reasonable thing to want."},
+    {"role": "escalate", "text": "Then someone replied all to say please stop replying all."},
+    {"role": "escalate", "text": "Then eleven more people replied all to agree with him."},
+    {"role": "escalate", "text": "One man simply wrote the word unsubscribe. To four hundred people."},
+    {"role": "turn",     "text": "I have watched this happen for two hours and done nothing."},
+    {"role": "punch",    "text": "I am not on that list. I have no idea whose emails these are."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["HUNDRED"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["REASONABLE"]},
+    {"index": 2, "pause_before_ms": 110, "emphasis": ["STOP"]},
+    {"index": 3, "pause_before_ms": 110, "emphasis": ["ELEVEN"]},
+    {"index": 4, "pause_before_ms": 130, "direction": "flat", "emphasis": ["UNSUBSCRIBE"]},
+    {"index": 5, "pause_before_ms": 280, "emphasis": ["NOTHING"]},
+    {"index": 6, "pause_before_ms": 620, "direction": "deadpan", "emphasis": ["WHOSE"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of a computer monitor showing a wall of dense unreadable email rows stacking up, blue screen glow on a dim desk"},
+    {"line_index": 2, "shot_size": "wide", "motion": "drift-right", "prompt": "wide shot of a huge open plan office where every single person is staring at their own screen with the same tense expression"},
+    {"line_index": 4, "shot_size": "extreme-close", "motion": "pull-out", "prompt": "extreme close up of a single finger pressing an oversized send key on a keyboard, dramatic hard light"},
+    {"line_index": 6, "shot_size": "medium", "motion": "static-float", "prompt": "medium shot of a woman sitting alone at a desk lit only by her monitor, watching intently, faintly delighted, chin on hand"}
+  ],
+  "metadata": {
+    "title": "someone replied all to 400 people and it is still going #shorts",
+    "description_hook": "One man just wrote the word unsubscribe. To everyone.",
+    "hashtags": "#shorts #comedy #officehumor #worklife #corporate #relatable",
+    "tags": ["comedy", "shorts", "office humor", "work", "corporate", "email", "relatable"]
+  }
+}

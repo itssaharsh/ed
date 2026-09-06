@@ -1,0 +1,42 @@
+{
+  "_note": "4 shots, sparse. Mechanism: unspoken rule. The performance of innocence under a machine's suspicion. Ends on the narrator confessing to a crime nobody accused them of.",
+  "premise": {
+    "situation": "A self checkout machine says unexpected item in the bagging area and a person freezes",
+    "turn": "They begin performing honesty for a machine and for a staff member who is not watching",
+    "detail": "they hold the item up in the air as evidence",
+    "mechanism": "unspoken rule",
+    "target": "self"
+  },
+  "style": "neon_late",
+  "character_sheet": "a man in his thirties, rain jacket, holding a shopping basket",
+  "beats": [
+    {"role": "hook",     "text": "The self checkout said unexpected item in the bagging area."},
+    {"role": "setup",    "text": "And I froze. Completely. Like I had been caught."},
+    {"role": "escalate", "text": "I held the item up in the air. For the machine to see."},
+    {"role": "escalate", "text": "There is no camera. I know there is no camera. I did it anyway."},
+    {"role": "escalate", "text": "Then I looked around for the staff member, to show her I was innocent."},
+    {"role": "turn",     "text": "She was not looking. She has never once been looking."},
+    {"role": "punch",    "text": "I apologised out loud. To nobody. And then I paid for everything."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["UNEXPECTED"]},
+    {"index": 1, "pause_before_ms": 150, "emphasis": ["CAUGHT"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["AIR"]},
+    {"index": 3, "pause_before_ms": 130, "direction": "flat", "emphasis": ["ANYWAY"]},
+    {"index": 4, "pause_before_ms": 110, "emphasis": ["INNOCENT"]},
+    {"index": 5, "pause_before_ms": 300, "emphasis": ["NEVER"]},
+    {"index": 6, "pause_before_ms": 620, "direction": "deadpan", "emphasis": ["APOLOGISED"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of a self checkout screen glowing red in a dark supermarket, harsh magenta light on the surrounding metal"},
+    {"line_index": 2, "shot_size": "medium", "motion": "drift-left", "prompt": "medium shot of a man holding a small grocery item up above his head with both hands, presenting it to nothing, cyan overhead light"},
+    {"line_index": 4, "shot_size": "wide", "motion": "pull-out", "prompt": "wide shot of a long row of empty self checkout machines at night, one small figure standing among them, deep shadows"},
+    {"line_index": 6, "shot_size": "close", "motion": "static-float", "prompt": "close up of a man's face lit from below by a checkout screen, mouth slightly open mid apology, entirely alone"}
+  ],
+  "metadata": {
+    "title": "i apologised to a self checkout machine #shorts",
+    "description_hook": "I held the item up in the air. There is no camera. I know there is no camera.",
+    "hashtags": "#shorts #comedy #relatable #funny #socialanxiety #standup",
+    "tags": ["comedy", "shorts", "relatable", "funny", "social anxiety", "supermarket", "standup"]
+  }
+}

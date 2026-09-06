@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: unspoken rule. The domestic standoff where nobody will be the one to act, and the object outlasts everyone's patience.",
+  "premise": {
+    "situation": "Nobody in the flat will empty the washing machine because whoever empties it has to fold it",
+    "turn": "The clothes have been in there long enough that they now have to be washed again",
+    "detail": "somebody put a towel on top of it, which counts as dealing with it",
+    "mechanism": "unspoken rule",
+    "target": "self"
+  },
+  "style": "grain_docu",
+  "character_sheet": "a woman in her twenties, hair tied back, hoodie, standing in a small utility room",
+  "beats": [
+    {"role": "hook",     "text": "There is a load of washing in our machine from Sunday."},
+    {"role": "setup",    "text": "It finished. We all heard it finish. The beeping went on for a while."},
+    {"role": "escalate", "text": "Nobody will open it, because whoever opens it has to fold it."},
+    {"role": "escalate", "text": "That is the rule. Nobody made the rule. The rule is simply there."},
+    {"role": "escalate", "text": "Someone put a clean towel on top of the machine. As a gesture."},
+    {"role": "turn",     "text": "It is now Thursday, and the washing has developed an opinion."},
+    {"role": "punch",    "text": "So we are going to wash it again. That is the plan."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["SUNDAY"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["BEEPING"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["FOLD"]},
+    {"index": 3, "pause_before_ms": 180, "direction": "flat", "emphasis": ["RULE"]},
+    {"index": 4, "pause_before_ms": 130, "emphasis": ["GESTURE"]},
+    {"index": 5, "pause_before_ms": 300, "emphasis": ["OPINION"]},
+    {"index": 6, "pause_before_ms": 600, "direction": "deadpan", "emphasis": ["PLAN"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of a closed washing machine door with damp clothes pressed against the glass from inside, dim utility room"},
+    {"line_index": 1, "shot_size": "wide", "motion": "drift-right", "prompt": "wide shot of an empty kitchen at night, a single appliance light glowing across the room, nobody present"},
+    {"line_index": 2, "shot_size": "medium", "motion": "pull-out", "prompt": "medium shot of a woman standing in a doorway looking at a washing machine, arms folded, making no move toward it"},
+    {"line_index": 3, "shot_size": "wide", "motion": "static-float", "prompt": "wide shot of three people in a living room all conspicuously looking anywhere except at the doorway to the utility room"},
+    {"line_index": 4, "shot_size": "close", "motion": "drift-left", "prompt": "close up of a neatly folded clean towel placed on top of a washing machine lid, absurdly tidy against a messy room"},
+    {"line_index": 5, "shot_size": "extreme-close", "motion": "push-in", "prompt": "extreme close up of damp fabric pressed against wet glass, condensation running down, slightly menacing"},
+    {"line_index": 6, "shot_size": "medium", "motion": "static-float", "prompt": "medium shot of a hand pressing a start button on a washing machine, resigned posture, no expression visible"}
+  ],
+  "metadata": {
+    "title": "the washing has been in there since sunday #shorts",
+    "description_hook": "Whoever opens it has to fold it. Nobody made that rule.",
+    "hashtags": "#shorts #comedy #relatable #funny #flatmates #adulting",
+    "tags": ["comedy", "shorts", "relatable", "flatmates", "housemates", "funny", "adulting"]
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: bad system. Analogue habits bolted onto digital work, defended as rigour. Ends on the loop closing on itself.",
+  "premise": {
+    "situation": "A colleague prints out emails in order to read them properly",
+    "turn": "He annotates them by hand, types the annotations into a reply, and prints the reply",
+    "detail": "a highlighter, on an email",
+    "mechanism": "bad system",
+    "target": "stranger"
+  },
+  "style": "flat_absurd",
+  "character_sheet": "a man in his fifties, reading glasses on a chain, short-sleeved shirt",
+  "beats": [
+    {"role": "hook",     "text": "There is a man in accounts who prints out his emails."},
+    {"role": "setup",    "text": "Not to file them. To read them. He says he reads better on paper."},
+    {"role": "escalate", "text": "He highlights them. He has a highlighter. For emails."},
+    {"role": "escalate", "text": "Then he writes his reply on the paper, by hand, in the margin."},
+    {"role": "escalate", "text": "Then he types the margin into an email and sends it."},
+    {"role": "turn",     "text": "And I know what happens next, because I have watched him do it."},
+    {"role": "punch",    "text": "He prints the reply. For his records."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["PRINTS"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["PAPER"]},
+    {"index": 2, "pause_before_ms": 130, "emphasis": ["HIGHLIGHTER"]},
+    {"index": 3, "pause_before_ms": 120, "emphasis": ["MARGIN"]},
+    {"index": 4, "pause_before_ms": 110, "emphasis": ["SENDS"]},
+    {"index": 5, "pause_before_ms": 300, "direction": "flat", "emphasis": ["WATCHED"]},
+    {"index": 6, "pause_before_ms": 620, "direction": "deadpan", "emphasis": ["RECORDS"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "medium", "motion": "push-in", "prompt": "medium shot of a man standing at an office printer waiting patiently, one sheet emerging, calm expression"},
+    {"line_index": 1, "shot_size": "close", "motion": "drift-right", "prompt": "close up of a man sitting at a desk holding a single sheet of paper at reading distance, glasses down his nose, a dark computer monitor behind him"},
+    {"line_index": 2, "shot_size": "extreme-close", "motion": "pull-out", "prompt": "extreme close up of a yellow highlighter being drawn across a line of blurred illegible printed text"},
+    {"line_index": 3, "shot_size": "close", "motion": "static-float", "prompt": "close up of a hand writing in pen in the white margin of a printed sheet, dense unreadable handwriting"},
+    {"line_index": 4, "shot_size": "over-shoulder", "motion": "drift-left", "prompt": "over the shoulder view of a man typing slowly with two fingers, a marked up sheet of paper propped against the monitor"},
+    {"line_index": 5, "shot_size": "wide", "motion": "push-in", "prompt": "wide shot of an office worker watching a colleague across the room from behind a low partition, quietly appalled"},
+    {"line_index": 6, "shot_size": "wide", "motion": "static-float", "prompt": "wide shot of an enormous overflowing filing cabinet with paper stacked to the ceiling beside a small tidy desk"}
+  ],
+  "metadata": {
+    "title": "the man in accounts highlights his emails #shorts",
+    "description_hook": "He has a highlighter. At his desk. Specifically for emails.",
+    "hashtags": "#shorts #comedy #officehumor #worklife #relatable #satire",
+    "tags": ["comedy", "shorts", "office humor", "work", "corporate", "relatable", "satire"]
+  }
+}

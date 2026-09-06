@@ -1,0 +1,11 @@
+{
+  "_comment": "The quality floor for the QC gate. A candidate script that loses a pairwise comparison against this is not published. Deliberately competent-but-unremarkable: specific enough to be a real bit, flat enough that anything genuinely funny should beat it. Raising this raises the bar for every future video.",
+  "beats": [
+    {"role": "hook",     "text": "My flatmate labels his food in the fridge."},
+    {"role": "setup",    "text": "Not with his name. With dates. Every container has a little date on masking tape."},
+    {"role": "escalate", "text": "Last week I moved one two inches to get the milk."},
+    {"role": "escalate", "text": "He noticed. He asked me, genuinely, whether I had a system."},
+    {"role": "turn",     "text": "I said no."},
+    {"role": "punch",    "text": "He looked at me like I'd told him I couldn't read."}
+  ]
+}

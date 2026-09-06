@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: escalating commitment. A small principled stand compounds into daily physical suffering that he cannot abandon without losing face.",
+  "premise": {
+    "situation": "A man decides once that lifts are for the lazy and takes the stairs to the eleventh floor",
+    "turn": "He can no longer speak for the first four minutes of any meeting and will not stop",
+    "detail": "he arrives holding the doorframe",
+    "mechanism": "escalating commitment",
+    "target": "friend"
+  },
+  "style": "grain_docu",
+  "character_sheet": "a man in his forties, short grey hair, creased shirt, no jacket",
+  "beats": [
+    {"role": "hook",     "text": "A man at my work decided lifts were for the lazy."},
+    {"role": "setup",    "text": "He said it once, out loud, in front of people. That was the mistake."},
+    {"role": "escalate", "text": "Our office is on the eleventh floor."},
+    {"role": "escalate", "text": "He now arrives at every meeting holding the doorframe."},
+    {"role": "escalate", "text": "For the first four minutes he cannot form a sentence. He just nods."},
+    {"role": "turn",     "text": "Someone asked if he was alright and he gave a thumbs up. Only a thumbs up."},
+    {"role": "punch",    "text": "That was eight months ago. He has never taken the lift."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["LAZY"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["MISTAKE"]},
+    {"index": 2, "pause_before_ms": 200, "emphasis": ["ELEVENTH"]},
+    {"index": 3, "pause_before_ms": 120, "emphasis": ["DOORFRAME"]},
+    {"index": 4, "pause_before_ms": 110, "emphasis": ["NODS"]},
+    {"index": 5, "pause_before_ms": 280, "direction": "flat", "emphasis": ["THUMBS"]},
+    {"index": 6, "pause_before_ms": 620, "direction": "deadpan", "emphasis": ["NEVER"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "medium", "motion": "push-in", "prompt": "medium shot of a man standing in an office corridor gesturing dismissively at a lift door behind him, righteous expression"},
+    {"line_index": 1, "shot_size": "wide", "motion": "drift-right", "prompt": "wide shot of a small group of office workers standing in silence looking at one man, mild collective embarrassment"},
+    {"line_index": 2, "shot_size": "wide", "motion": "pull-out", "prompt": "wide shot looking straight up a tall concrete stairwell, flights spiralling upward endlessly, harsh overhead light"},
+    {"line_index": 3, "shot_size": "medium", "motion": "static-float", "prompt": "medium shot of a man gripping a doorframe with one hand, red faced, shirt untucked, staring at the floor"},
+    {"line_index": 4, "shot_size": "close", "motion": "push-in", "prompt": "close up of a man's face, mouth slightly open, unable to speak, sweat at the hairline, eyes apologetic"},
+    {"line_index": 5, "shot_size": "close", "motion": "drift-left", "prompt": "close up of a single hand raised in a thumbs up gesture, trembling very slightly, blurred meeting room behind"},
+    {"line_index": 6, "shot_size": "wide", "motion": "static-float", "prompt": "wide shot of an empty lift with its doors open in a deserted corridor, warm light spilling out, nobody in it"}
+  ],
+  "metadata": {
+    "title": "he said lifts were for the lazy. eight months ago. #shorts",
+    "description_hook": "The lift is right there. It has always been right there.",
+    "hashtags": "#shorts #comedy #officehumor #worklife #relatable #standup",
+    "tags": ["comedy", "shorts", "office humor", "work", "relatable", "standup", "observational"]
+  }
+}

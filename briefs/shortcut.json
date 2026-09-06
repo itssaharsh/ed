@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: misplaced confidence, pursued past the point any reasonable person would stop. The joke is that admitting the mistake becomes more expensive than the mistake.",
+  "premise": {
+    "situation": "A friend insists he knows a shortcut and refuses to turn on the sat nav",
+    "turn": "He drives forty minutes into farmland rather than admit the turning was wrong",
+    "detail": "he turns the radio down to concentrate on a road he has never seen",
+    "mechanism": "misplaced confidence",
+    "target": "friend"
+  },
+  "style": "neon_late",
+  "character_sheet": "a man in his thirties, close-cropped beard, denim jacket, driving",
+  "beats": [
+    {"role": "hook",     "text": "My friend Danny does not use sat nav. Danny knows a way."},
+    {"role": "setup",    "text": "Twenty minutes in, he turns the radio down. That is the tell."},
+    {"role": "escalate", "text": "The radio goes down when Danny stops recognising the road."},
+    {"role": "escalate", "text": "We passed a horse. Then we passed the same horse again."},
+    {"role": "escalate", "text": "I offered him my phone and he said, no, I can picture it."},
+    {"role": "turn",     "text": "We arrived fifty minutes late to a thing that lasted twenty."},
+    {"role": "punch",    "text": "He still says we saved time on the motorway."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["DANNY"]},
+    {"index": 1, "pause_before_ms": 130, "emphasis": ["TELL"]},
+    {"index": 2, "pause_before_ms": 110, "emphasis": ["RECOGNISING"]},
+    {"index": 3, "pause_before_ms": 150, "emphasis": ["HORSE"]},
+    {"index": 4, "pause_before_ms": 120, "direction": "flat", "emphasis": ["PICTURE"]},
+    {"index": 5, "pause_before_ms": 280, "emphasis": ["TWENTY"]},
+    {"index": 6, "pause_before_ms": 580, "direction": "deadpan", "emphasis": ["MOTORWAY"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "medium", "motion": "push-in", "prompt": "medium shot of a man driving at night, both hands on the wheel, absolute certainty on his face, city lights streaking past the window"},
+    {"line_index": 1, "shot_size": "close", "motion": "drift-left", "prompt": "close up of a hand reaching for a car stereo dial in the dark, dashboard glow on the fingers"},
+    {"line_index": 2, "shot_size": "close", "motion": "pull-out", "prompt": "close up of a man's face lit only by dashboard light, eyes narrowing at something ahead, confidence draining"},
+    {"line_index": 3, "shot_size": "wide", "motion": "static-float", "prompt": "wide shot of a lone horse standing at the edge of a dark country lane, caught in car headlights, staring back"},
+    {"line_index": 4, "shot_size": "over-shoulder", "motion": "drift-right", "prompt": "over the shoulder view from the passenger seat of a phone being held out toward the driver, who is not looking at it"},
+    {"line_index": 5, "shot_size": "wide", "motion": "push-in", "prompt": "wide shot of an empty rural road stretching into blackness, one car very small in the distance, no lights anywhere"},
+    {"line_index": 6, "shot_size": "medium", "motion": "static-float", "prompt": "medium shot of a man standing beside a parked car at night, arms folded, entirely satisfied with himself"}
+  ],
+  "metadata": {
+    "title": "danny knows a way #shorts",
+    "description_hook": "We passed the same horse twice and he called it a shortcut.",
+    "hashtags": "#shorts #comedy #funny #friends #relatable #standup",
+    "tags": ["comedy", "shorts", "funny", "friends", "driving", "relatable", "standup"]
+  }
+}

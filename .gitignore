@@ -1,10 +1,17 @@
-credentials.json
-credentials_2.json
+# Never commit these
 client_secrets.json
-get_credentials.py
-_creds_compact.txt
-YOUTUBE_CREDENTIALS_JSON
-YOUTUBE_CLIENT_SECRETS_JSON
+credentials.json
+credentials_*.json
+.env
+
+# Run artefacts
+work/
+*.mp4
+*.wav
+
+# Fetched at runtime, not source
+assets/fonts/*.ttf
+
 .venv/
-_caption_cache/
 __pycache__/
+*.pyc

@@ -1,0 +1,45 @@
+{
+  "_note": "Mechanism: unspoken rule. Nobody agreed the group chat name is permanent, but changing it is now a social act with consequences.",
+  "premise": {
+    "situation": "A group chat has been named after a single joke from a night out in 2019",
+    "turn": "Nobody can rename it because renaming it would mean admitting you think about it",
+    "detail": "the name is a misspelling nobody has ever explained",
+    "mechanism": "unspoken rule",
+    "target": "self"
+  },
+  "style": "flat_absurd",
+  "character_sheet": "a woman in her late twenties, dark bob, oversized jumper, holding a phone",
+  "beats": [
+    {"role": "hook",     "text": "My group chat has been called the same thing since twenty nineteen."},
+    {"role": "setup",    "text": "It is a misspelling of a word. From a night none of us fully remember."},
+    {"role": "escalate", "text": "Six adults with mortgages open that name every single day."},
+    {"role": "escalate", "text": "Someone changed it once. For nine minutes. Then it was back."},
+    {"role": "escalate", "text": "No discussion. Nobody said anything. It was simply back."},
+    {"role": "turn",     "text": "I have thought about changing it. Then I picture everyone seeing that I did."},
+    {"role": "punch",    "text": "So it stays. We will be sixty and it will still say that."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["NINETEEN"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["MISSPELLING"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["MORTGAGES"]},
+    {"index": 3, "pause_before_ms": 130, "emphasis": ["MINUTES"]},
+    {"index": 4, "pause_before_ms": 200, "direction": "flat", "emphasis": ["BACK"]},
+    {"index": 5, "pause_before_ms": 260, "emphasis": ["PICTURE"]},
+    {"index": 6, "pause_before_ms": 600, "direction": "deadpan", "emphasis": ["SIXTY"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of a phone screen held in one hand showing a messaging app, the title bar deliberately blurred and unreadable, thumb hovering"},
+    {"line_index": 1, "shot_size": "wide", "motion": "drift-left", "prompt": "wide shot of six blurred silhouettes laughing in a dark bar, warm smeared lights, one figure gesturing mid story"},
+    {"line_index": 2, "shot_size": "wide", "motion": "pull-out", "prompt": "wide shot of six separate people in six separate rooms all looking down at phones at the same moment, grid-like arrangement"},
+    {"line_index": 3, "shot_size": "extreme-close", "motion": "static-float", "prompt": "extreme close up of a thumb pressing an edit icon on a phone screen, single point of light"},
+    {"line_index": 4, "shot_size": "close", "motion": "drift-right", "prompt": "close up of a phone lying face up on a kitchen counter, screen lit, nobody near it, room otherwise empty"},
+    {"line_index": 5, "shot_size": "medium", "motion": "push-in", "prompt": "medium shot of a woman sitting on a sofa staring at her phone with an expression of quiet dread, lamp light"},
+    {"line_index": 6, "shot_size": "wide", "motion": "static-float", "prompt": "wide shot of six much older people sitting together in a garden, all holding phones, all looking at the same screen"}
+  ],
+  "metadata": {
+    "title": "our group chat name is from 2019 and we are trapped #shorts",
+    "description_hook": "Someone changed it for nine minutes once. We do not talk about it.",
+    "hashtags": "#shorts #comedy #relatable #funny #friends #groupchat",
+    "tags": ["comedy", "shorts", "relatable", "friends", "group chat", "funny", "observational"]
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "_note": "4 shots on purpose: a shot holds across two lines. Fewer image generations, which matters when the image provider is the slow step. Mechanism: escalating commitment to a task he keeps abandoning.",
+  "premise": {
+    "situation": "A man boils the kettle, forgets, and reboils it every time he walks past",
+    "turn": "He has boiled the same water eleven times and still has not made the tea",
+    "detail": "he reboils it out of habit before checking whether it is hot",
+    "mechanism": "sincere wrong effort",
+    "target": "self"
+  },
+  "style": "flat_absurd",
+  "character_sheet": "a man in his thirties, unbrushed hair, dressing gown, standing in a kitchen",
+  "beats": [
+    {"role": "hook",     "text": "I boiled the kettle at nine o'clock this morning."},
+    {"role": "setup",    "text": "It is now half past two and I have not had a cup of tea."},
+    {"role": "escalate", "text": "Every time I walk past it I press the button again. Automatically."},
+    {"role": "escalate", "text": "Not because it is cold. I do not check whether it is cold. I just press it."},
+    {"role": "escalate", "text": "It rumbles, it clicks off, and I walk out of the room with nothing."},
+    {"role": "turn",     "text": "That same water has now been boiled eleven separate times."},
+    {"role": "punch",    "text": "At this point I think it is personal."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["NINE"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["TEA"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["AUTOMATICALLY"]},
+    {"index": 3, "pause_before_ms": 130, "direction": "flat", "emphasis": ["CHECK"]},
+    {"index": 4, "pause_before_ms": 110, "emphasis": ["NOTHING"]},
+    {"index": 5, "pause_before_ms": 300, "emphasis": ["ELEVEN"]},
+    {"index": 6, "pause_before_ms": 600, "direction": "deadpan", "emphasis": ["PERSONAL"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "close", "motion": "push-in", "prompt": "close up of an electric kettle on a kitchen counter with steam pouring from its spout, morning light through a window"},
+    {"line_index": 2, "shot_size": "medium", "motion": "drift-left", "prompt": "medium shot of a man walking past a kitchen counter reaching out sideways to press a kettle switch without looking at it"},
+    {"line_index": 5, "shot_size": "wide", "motion": "pull-out", "prompt": "wide shot of a kitchen completely filled with thick white steam, one figure barely visible standing in the middle of it"},
+    {"line_index": 6, "shot_size": "close", "motion": "static-float", "prompt": "close up of a kettle sitting on a counter, absolutely still, faintly menacing, one bare empty mug beside it"}
+  ],
+  "metadata": {
+    "title": "i have boiled the same water eleven times #shorts",
+    "description_hook": "Still no tea. The kettle and I are in a situation now.",
+    "hashtags": "#shorts #comedy #relatable #funny #adulting #standup",
+    "tags": ["comedy", "shorts", "relatable", "funny", "adulting", "tea", "observational"]
+  }
+}

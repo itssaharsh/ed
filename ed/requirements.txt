@@ -1,0 +1,13 @@
+edge-tts==7.2.8
+# New SDK (takes priority via try/except in main.py - enforces JSON mime type correctly)
+google-genai>=1.0.0
+# Deprecated SDK kept as fallback only
+google-generativeai==0.8.6
+google-api-python-client==2.167.0
+google-auth==2.40.3
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.2
+moviepy>=2.2.1
+Pillow==11.3.0
+requests==2.32.4
+groq>=0.14.0

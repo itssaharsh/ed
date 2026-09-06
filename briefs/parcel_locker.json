@@ -1,0 +1,42 @@
+{
+  "_note": "4 shots, sparse. Mechanism: bad system. The delivery-notification loop where every party has technically done their job and the parcel is nowhere. Ends on the narrator defending the system that has defeated them.",
+  "premise": {
+    "situation": "A parcel is marked delivered but is not there, and the tracking says it was handed to a resident",
+    "turn": "The narrator becomes convinced there is a resident in the building nobody has met",
+    "detail": "the signature is a single wavy line",
+    "mechanism": "bad system",
+    "target": "institution"
+  },
+  "style": "grain_docu",
+  "character_sheet": "a man in his thirties, hoodie, standing in a shared hallway of a block of flats",
+  "beats": [
+    {"role": "hook",     "text": "My parcel says delivered. It is not here."},
+    {"role": "setup",    "text": "The tracking says it was handed to a resident. Signed for and everything."},
+    {"role": "escalate", "text": "The signature is a single wavy line. That is the whole signature."},
+    {"role": "escalate", "text": "I have knocked on every door in this building. Nobody has it."},
+    {"role": "escalate", "text": "Which means there is a resident here that none of us have ever met."},
+    {"role": "turn",     "text": "I rang the company and they read the tracking back to me. Slowly."},
+    {"role": "punch",    "text": "So it has been delivered. Just not to anybody who lives here."}
+  ],
+  "direction": [
+    {"index": 0, "pause_before_ms": 0,   "emphasis": ["DELIVERED"]},
+    {"index": 1, "pause_before_ms": 140, "emphasis": ["RESIDENT"]},
+    {"index": 2, "pause_before_ms": 120, "emphasis": ["WAVY"]},
+    {"index": 3, "pause_before_ms": 110, "emphasis": ["NOBODY"]},
+    {"index": 4, "pause_before_ms": 130, "direction": "flat", "emphasis": ["MET"]},
+    {"index": 5, "pause_before_ms": 300, "emphasis": ["SLOWLY"]},
+    {"index": 6, "pause_before_ms": 620, "direction": "deadpan", "emphasis": ["LIVES"]}
+  ],
+  "shots": [
+    {"line_index": 0, "shot_size": "wide", "motion": "push-in", "prompt": "wide shot of an empty shared hallway in a block of flats with a bare doormat, nothing on it, cold daylight from a window"},
+    {"line_index": 2, "shot_size": "extreme-close", "motion": "drift-right", "prompt": "extreme close up of a delivery signature screen showing one meaningless wavy scribble, harsh direct light"},
+    {"line_index": 4, "shot_size": "wide", "motion": "pull-out", "prompt": "wide shot of a long dim corridor lined with many identical closed doors receding into shadow, one figure very small at the near end"},
+    {"line_index": 6, "shot_size": "close", "motion": "static-float", "prompt": "close up of a man holding a phone to his ear, expression of total flat defeat, hallway light behind him"}
+  ],
+  "metadata": {
+    "title": "my parcel was delivered to a resident nobody has met #shorts",
+    "description_hook": "The signature is one wavy line. That is the entire signature.",
+    "hashtags": "#shorts #comedy #relatable #funny #delivery #adulting",
+    "tags": ["comedy", "shorts", "relatable", "delivery", "parcel", "funny", "observational"]
+  }
+}
