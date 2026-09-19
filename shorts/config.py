@@ -137,6 +137,15 @@ MASTER_W, MASTER_H = 1296, 2304   # 1.2x of 1080x1920 — headroom for zoom/pan
 # provider that can actually hold a style, and with more than eight samples.
 MAX_SATURATION_RANGE = 0.35
 
+# Ask a vision model whether each generated image shows its shot's subject. OFF by default, on
+# evidence: the check runs on Gemini, whose free tier measured ~20 requests/day in CI, and six
+# checks per video spend the calls the script needs. In the fourth CI run every check hit that
+# quota and checked nothing - while the images matched their subjects anyway (dog on notebook,
+# cactus, notebook), because the real cause of wrong subjects was the shot-list prompt burying
+# the object under a character description, now fixed. Turn it on once a vision provider with
+# headroom exists (e.g. CLOUDFLARE_* for flux, which rarely misses the subject anyway).
+SUBJECT_CHECK = False
+
 # ── LLM models, in fallback order ───────────────────────────────────────────
 #
 # Verified against each provider's live model list on 2026-09-12. Re-verify before trusting

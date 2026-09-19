@@ -51,7 +51,7 @@ def test_prompts() -> None:
     cases = {
         "01_ideate": dict(CATEGORY="x", CATEGORY_BRIEF="y", RECENT_PREMISES="- a", N=12),
         "02_tournament": dict(ITEM_KIND="k", CONTEXT="c", A="a", B="b", VOICE=""),
-        "03_script": dict(PREMISE="p", TARGET_SECONDS=40, TARGET_WORDS=105),
+        "03_script": dict(REPAIR="", PREMISE="p", TARGET_SECONDS=40, TARGET_WORDS=105),
         "04_punchup": dict(SCRIPT="s", THE_JOKE="j", N=6),
         "05_delivery": dict(BEATS="b", VOICE_NAME="austin"),
         "06_shotlist": dict(LINES="l", STYLE_NAME="flat_absurd", STYLE_CONTRACT="c", REPAIR="",
@@ -417,6 +417,51 @@ def test_rate_limits() -> None:
         L._COOLDOWN.clear()
 
 
+def test_script_length() -> None:
+    """Replays the fourth CI dry run: a 76-word draft rendered to 19.4s and the gate rejected it
+    after five minutes of voice and images. Length is now checked at stage 3."""
+    from shorts import write as W
+    from shorts.config import MIN_DURATION
+    print("\nscript length")
+
+    beats = lambda n: {"beats": [{"role": r, "text": " ".join(["word"] * n)}
+                                 for r in ("hook", "setup", "escalate", "turn", "punch")],
+                       "the_joke": "j"}
+    ci_short = {"beats": [
+        {"role": "hook", "text": "My sister tracks her cactus with a medical syringe."},
+        {"role": "setup", "text": "It is a one millilitre insulin needle, bought for her own blood."},
+        {"role": "escalate", "text": "She logs every dose in a leather-bound notebook, to the tenth of a millilitre."},
+        {"role": "escalate", "text": "The cactus has not received exactly twenty three millilitres in forty eight hours."},
+        {"role": "turn", "text": "She pulled the needle out of the soil and set it on the counter."},
+        {"role": "punch", "text": "Her dog consumed the notebook."}], "the_joke": "j"}
+    est = W.estimate_seconds(ci_short["beats"])
+    check("the CI draft is flagged as short", est < MIN_DURATION + W.LENGTH_MARGIN, f"{est:.1f}s")
+
+    class Seq:
+        def __init__(self, *outs): self.outs, self.prompts = list(outs), []
+        def complete_json(self, prompt, **k):
+            self.prompts.append(prompt); return self.outs.pop(0)
+
+    prem = W.Premise(situation="s", turn="t", detail="d", mechanism="m", target="x")
+    llm = Seq(ci_short, beats(22))
+    out, _ = W.draft_script(llm, prem)
+    check("a short draft gets one repair and uses it",
+          len(llm.prompts) == 2 and W.estimate_seconds(out) >= MIN_DURATION)
+    check("the repair names the shortfall in words", "CORRECTION" in llm.prompts[1]
+          and "words" in llm.prompts[1])
+
+    llm = Seq(beats(22))
+    W.draft_script(llm, prem)
+    check("a long-enough draft costs no extra call", len(llm.prompts) == 1)
+
+    llm = Seq(beats(5), beats(6))
+    try:
+        W.draft_script(llm, prem)
+        check("hopelessly short fails before voice and images", False)
+    except W.LLMError:
+        check("hopelessly short fails before voice and images", True)
+
+
 def test_tournament() -> None:
     print("\ntournament")
     check("no bouts is neutral", bradley_terry(3, []) == [0.0, 0.0, 0.0])
@@ -628,7 +673,7 @@ def main() -> int:
     for fn in (test_json_extraction, test_prompts, test_personas,
                test_caption_cards, test_coherence, test_subject_check,
                test_llm_resilience, test_rate_limits, test_shot_people,
-               test_tournament, test_dedup,
+               test_script_length, test_tournament, test_dedup,
                test_voice_timing, test_script_cleaning, test_sparse_shot_timing,
                test_briefs_valid, test_image_breaker, test_gate):
         fn()

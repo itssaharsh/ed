@@ -122,11 +122,9 @@ def load(path: Path) -> Brief:
     #
     # A 1s tolerance keeps the check honest about its own error bars - it should only stop briefs
     # that clearly cannot pass, and warn about the ones near the line.
-    PAUSE_DEFAULTS = {"hook": 0, "setup": 130, "escalate": 110, "turn": 280,
-                      "punch": 540, "tag": 320}
+    from .write import estimate_seconds
     words = sum(len(b["text"].split()) for b in cleaned)
-    pause_total = sum(PAUSE_DEFAULTS.get(b["role"], 120) for b in cleaned[1:]) / 1000.0
-    est = words * 0.235 + pause_total
+    est = estimate_seconds(cleaned)
     TOLERANCE = 1.0
 
     if est < MIN_DURATION - TOLERANCE:

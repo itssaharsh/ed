@@ -21,6 +21,7 @@ from pathlib import Path
 import requests
 
 from .config import (
+    SUBJECT_CHECK,
     GEMINI_MODELS,
     CF_IMAGE_MODEL, IMAGE_H, IMAGE_STEPS, IMAGE_W, MASTER_H, MASTER_W, Config, logger,
 )
@@ -294,8 +295,14 @@ def depicts_subject(cfg: Config, data: bytes, prompt: str) -> tuple[bool | None,
     producing no video at all. The gate refuses to publish unverified comedy; this refuses only to
     waste a regeneration on a check it could not run.
     """
+    if not SUBJECT_CHECK:
+        return None, "disabled (config.SUBJECT_CHECK)"
     if not cfg.gemini_key:
         return None, "no gemini key"
+    from .llm import _cooling
+    if _cooling(GEMINI_MODELS[0]):
+        # The writing stages found Gemini rate limited; asking again only spends a request.
+        return None, "gemini cooling down"
     subject = subject_of(prompt)
     try:
         from google import genai

@@ -1,6 +1,6 @@
 # Stage 3 — Script draft
 
-Variables: `{{PREMISE}}` `{{TARGET_SECONDS}}` `{{TARGET_WORDS}}`
+Variables: `{{PREMISE}}` `{{TARGET_SECONDS}}` `{{TARGET_WORDS}}` `{{REPAIR}}`
 
 ---
 
@@ -46,6 +46,8 @@ its own shot.
 - **Write for the mouth, not the eye.** Read it aloud in your head. If you stumble, rewrite it.
 - **No stage directions in the text.** No "[pause]", no "(beat)". Timing is assigned downstream —
   putting it in the text means the voice model reads it out loud.
+
+{{REPAIR}}
 
 ## Output
 

@@ -14,6 +14,7 @@ from typing import Any
 
 from . import prompts
 from .config import (
+    MIN_DURATION,
     CATEGORIES, MAX_DIRECTIONS, MAX_NONVERBALS, MAX_PAUSE_MS, N_PREMISES, N_PUNCHLINES,
     ORPHEUS_CHAR_LIMIT, TARGET_SECONDS, TARGET_WORDS, TOURNAMENT_ROUNDS, Category, logger,
 )
@@ -145,14 +146,65 @@ def _clean_spoken(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
+# ── Length, estimated before anything expensive ─────────────────────────────
+#
+# Calibrated against a real render: 84 words plus 1.38s of designed pauses produced 21.7s of
+# speech, so ~0.235s per word plus the pause budget. Shared by the brief loader and the
+# generated path. The generated path used to have no length check at all before the gate - the
+# fourth CI dry run (2026-09-19) wrote 76 words, spent five minutes on voice and six images, and
+# was then rejected at 19.4s against a 20s floor.
+SECONDS_PER_WORD = 0.235
+PAUSE_ESTIMATE = {"hook": 0, "setup": 130, "escalate": 110, "turn": 280, "punch": 540, "tag": 320}
+LENGTH_MARGIN = 2.5     # aim this far above the floor: voice speed and punch-up both wobble
+
+
+def estimate_seconds(beats: list[dict]) -> float:
+    words = sum(len(str(b.get("text", "")).split()) for b in beats)
+    pauses = sum(PAUSE_ESTIMATE.get(b.get("role", ""), 120) for b in beats[1:]) / 1000.0
+    return words * SECONDS_PER_WORD + pauses
+
+
 def draft_script(llm: LLM, premise: Premise,
                  persona: str | None = None) -> tuple[list[dict], str]:
-    p = prompts.render(
-        "03_script", VOICE=_voice(persona),
-        PREMISE=premise.prompt_block(),
-        TARGET_SECONDS=TARGET_SECONDS, TARGET_WORDS=TARGET_WORDS,
-    )
-    data = llm.complete_json(p, temperature=0.95)
+    def ask(repair: str) -> Any:
+        p = prompts.render(
+            "03_script", VOICE=_voice(persona),
+            PREMISE=premise.prompt_block(),
+            TARGET_SECONDS=TARGET_SECONDS, TARGET_WORDS=TARGET_WORDS, REPAIR=repair,
+        )
+        return llm.complete_json(p, temperature=0.95)
+
+    cleaned, the_joke = _parse_script(ask(""))
+    est = estimate_seconds(cleaned)
+    floor = MIN_DURATION + LENGTH_MARGIN
+    if est < floor:
+        words = sum(len(b["text"].split()) for b in cleaned)
+        need = int((floor - est) / SECONDS_PER_WORD) + 5
+        logger.warning("stage 3: draft is %d words (~%.1fs), under %.0fs; asking for another beat",
+                       words, est, floor)
+        try:
+            retry, retry_joke = _parse_script(ask(
+                f"CORRECTION: your previous draft was {words} words, about {est:.0f} seconds "
+                f"spoken - too short. It must run at least {floor:.0f} seconds. Add roughly "
+                f"{need} words as another escalate beat that raises the stakes. Do not pad "
+                f"existing lines."
+            ))
+            if estimate_seconds(retry) > est:
+                cleaned, the_joke = retry, retry_joke or the_joke
+                est = estimate_seconds(cleaned)
+        except LLMError as exc:
+            logger.warning("stage 3: length repair failed (%s); keeping the draft", exc)
+        if est < MIN_DURATION - 1.0:
+            # Fail here, while it costs one LLM call, rather than after voice and images.
+            raise LLMError(f"script is ~{est:.1f}s, below the {MIN_DURATION:.0f}s floor even "
+                           f"after a repair; not spending voice and image budget on it")
+    logger.info("stage 3: %d beats, %d words, ~%.1fs estimated", len(cleaned),
+                sum(len(b["text"].split()) for b in cleaned), est)
+    return cleaned, the_joke
+
+
+def _parse_script(data: Any) -> tuple[list[dict], str]:
+    """Validate a 03_script response into clean beats. Raises LLMError if unusable."""
     beats = data.get("beats") if isinstance(data, dict) else data
     if not isinstance(beats, list) or len(beats) < 4:
         raise LLMError(f"script draft returned {len(beats) if isinstance(beats, list) else 0} beats")
@@ -187,7 +239,6 @@ def draft_script(llm: LLM, premise: Premise,
     if not any(b["role"] == "punch" for b in cleaned):
         cleaned[-1]["role"] = "punch"          # the last line is the punch by definition
     the_joke = str(data.get("the_joke", "")).strip() if isinstance(data, dict) else ""
-    logger.info("stage 3: %d beats, %d words", len(cleaned), sum(len(b["text"].split()) for b in cleaned))
     return cleaned, the_joke
 
 
