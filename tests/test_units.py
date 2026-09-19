@@ -78,6 +78,151 @@ def test_prompts() -> None:
     check("judge prompt carries no persona", "You write for a single narrator" not in judge)
 
 
+def test_personas() -> None:
+    """The writers' room must actually contain different writers.
+
+    The point of the craft/persona split is variance in the *shape of the ending*: every script
+    before it ended on a flat declarative sentence, which is both the funniness ceiling and what
+    YouTube's Inauthentic Content policy penalises. A persona that sounds different but ends the
+    same way buys nothing, so punch shapes are asserted distinct here.
+    """
+    from shorts import prompts as P
+    print("\nwriters' room")
+
+    names = P.available_personas()
+    check("at least three personas", len(names) >= 3, f"{len(names)}: {names}")
+    check("the incumbent voice survives", P.DEFAULT_PERSONA in names)
+
+    shapes, bodies = {}, {}
+    for n in names:
+        b = P.persona_block(n)
+        bodies[n] = b
+        line = next((l for l in b.splitlines() if l.startswith("**Punch shape")), "")
+        shapes[n] = line
+        check(f"{n} declares a punch shape", bool(line))
+        check(f"{n} declares a forbidden punch shape", "**Forbidden punch shape" in b)
+
+    check("punch shapes are all distinct", len(set(shapes.values())) == len(names),
+          f"{len(set(shapes.values()))} distinct of {len(names)}")
+    check("persona bodies are all distinct", len(set(bodies.values())) == len(names))
+
+    for n in names:
+        v = P.voice_block(n)
+        check(f"{n} VOICE carries the craft block",
+              "specific + true + escalating" in v and "Banned" in v)
+        check(f"{n} VOICE carries its own persona", shapes[n] in v)
+
+    try:
+        P.persona_block("no_such_voice")
+        check("unknown persona raises", False)
+    except P.PromptError as exc:
+        check("unknown persona raises with the list", "available" in str(exc))
+
+
+def test_caption_cards() -> None:
+    """Cards must break where the sentence breaks.
+
+    The old flat every-third-word counter produced real output like "FRIDGE ITEMS. NOT" and
+    "DATE. EVERY SINGLE" - the end of one thought glued to the start of the next. On a Short the
+    caption is the visual beat, so that steps on the timing the delivery stage designed.
+    """
+    from shorts.captions import _should_break
+    print("\ncaption cards")
+
+    def split(text, emph=()):
+        cards, cur = [], []
+        for w in text.split():
+            item = (0.0, 0.0, w, w.strip(".,!?").upper() in emph)
+            cur.append(item)
+            if _should_break(cur, item):
+                cards.append(" ".join(x[2] for x in cur)); cur = []
+        if cur:
+            cards.append(" ".join(x[2] for x in cur))
+        return cards
+
+    cards = split("There is a man in my office who puts dates on the fridge items. "
+                  "Not his name on the tape. The date.")
+    straddles = [c for c in cards if any(m in c[:-1] for m in (".", "!", "?"))]
+    check("no card straddles a sentence end", not straddles, str(straddles))
+    check("a short sentence gets its own card", "The date." in cards, str(cards))
+    check("cards never exceed the word cap", all(len(c.split()) <= 3 for c in cards))
+
+    cards = split("He looked at me like I had offered him a DEBT.", emph={"DEBT"})
+    check("an emphasised word still breaks the card", cards[-1].split()[-1].startswith("DEBT"))
+
+    # A clause break lands only once the card is already readable (>=2 words), so a comma is
+    # never traded for a choppy one-word card. A sentence end always breaks regardless.
+    cards = split("Every single container, in the same handwriting.")
+    check("a clause break lands when the card is readable",
+          "Every single container," in cards, str(cards))
+    check("the sentence still closes its own card",
+          cards[-1].endswith("handwriting."), str(cards))
+
+
+def test_coherence() -> None:
+    """The style-drift metric must separate the runs that visibly read as one production."""
+    from shorts.images import coherence
+    from shorts.config import MAX_SATURATION_RANGE
+    from pathlib import Path as _P
+    print("\nstyle coherence")
+
+    check("empty input is safe", coherence([])["saturation_range"] == 0.0)
+    check("a single shot cannot drift", coherence([_P("nope.png")])["saturation_range"] == 0.0)
+
+    runs = {r.name: sorted((r / "images").glob("shot_*.png"))
+            for r in _P("work").iterdir() if (r / "images").is_dir()}
+    runs = {k: v for k, v in runs.items() if len(v) >= 2}
+    if not runs:
+        check("work/ has renders to calibrate against", False, "no runs on disk")
+        return
+
+    scored = {k: coherence(v)["saturation_range"] for k, v in runs.items()}
+    tight = [k for k, v in scored.items() if v <= MAX_SATURATION_RANGE]
+    loose = [k for k, v in scored.items() if v > MAX_SATURATION_RANGE]
+    check("the metric separates runs", bool(tight) and bool(loose),
+          f"{len(tight)} under / {len(loose)} over threshold {MAX_SATURATION_RANGE}")
+    check("the known-coherent neon_late run passes",
+          scored.get("20260822-232109-8017", 1.0) <= MAX_SATURATION_RANGE,
+          f"{scored.get('20260822-232109-8017')}")
+    check("the known-incoherent offline-11 run is flagged",
+          scored.get("offline-11", 0.0) > MAX_SATURATION_RANGE, f"{scored.get('offline-11')}")
+
+
+def test_subject_check() -> None:
+    """is_usable() cannot tell whether an image shows the requested subject; this can.
+
+    Measured on work/offline-11: 6 of 7 shots did not depict their subject (a corridor for "a man
+    in front of an open office fridge", an abstract blob for "masking tape on a container") and
+    all 7 passed is_usable.
+    """
+    import dataclasses
+    from shorts.images import subject_of, _parse_verdict, depicts_subject
+    from shorts.config import Config
+    print("\nsubject verification")
+
+    check("strips the shot size",
+          subject_of("wide shot of a man at an open office fridge, flat stare, strip light")
+          == "a man at an open office fridge")
+    check("handles extreme close-up",
+          subject_of("extreme close up of a strip of masking tape on a tub, hard light")
+          == "a strip of masking tape on a tub")
+    check("survives an unexpected shape",
+          subject_of("a jar of mustard on a shelf") == "a jar of mustard on a shelf")
+
+    check("yes parses true", _parse_verdict("Yes")[0] is True)
+    check("no parses false", _parse_verdict("no, an empty corridor")[0] is False)
+    check("prefixed yes parses true", _parse_verdict("YES - clearly a mustard jar")[0] is True)
+    check("a non-answer is unknown, not a rejection", _parse_verdict("I think maybe")[0] is None)
+    check("empty is unknown, not a rejection", _parse_verdict("")[0] is None)
+
+    # The keyless path must be untouched: no key means no check, and no check means keep the
+    # image. A vision outage must never halt image generation - unlike the QC gate, which fails
+    # closed, this one fails open by design.
+    cfg = dataclasses.replace(Config(), gemini_key=None)
+    verdict, _ = depicts_subject(cfg, b"not-an-image", "wide shot of a fridge")
+    check("no key means no check (fails open)", verdict is None)
+
+
 def test_tournament() -> None:
     print("\ntournament")
     check("no bouts is neutral", bradley_terry(3, []) == [0.0, 0.0, 0.0])
@@ -244,13 +389,26 @@ def test_gate() -> None:
     shots = [{"ok": True, "image": f"/tmp/s{i}.png"} for i in range(6)]
     info = {"duration": 20.0, "width": 1080, "height": 1920, "has_audio": True, "has_video": True}
     base = dict(lines=lines, shots=shots, video_info=info, audio_duration=20.0, lufs=-14.0,
-                script="word " * 100, store=store, premise="a unique premise about lifts")
+                script="word " * 100, store=store, premise="a unique premise about lifts",
+                voice_peak_dbfs=-4.2, final_peak_dbfs=-1.3)
 
     def fails(**over):
         kw = {**base, **over}
         return mechanical_checks(**kw)[0]
 
     check("healthy video passes", not fails())
+
+    # Silence rails. These exist because a silent render used to pass every check here and
+    # publish: ffmpeg reports "-inf LUFS" for silence, the old measure_loudness regex could not
+    # match "inf" and returned None, and the loudness check was guarded by `if lufs is not None`
+    # - so it was skipped exactly when it mattered. Measured on this build: a real render peaks
+    # at -1.3 dBFS, digital silence at -91.0.
+    check("rejects a silent render", fails(final_peak_dbfs=-91.0))
+    check("rejects silent narration", fails(voice_peak_dbfs=-120.0))
+    check("rejects an unmeasurable peak", fails(final_peak_dbfs=None))
+    check("rejects unmeasurable loudness", fails(lufs=None))
+    check("rejects audio at the silence floor", fails(final_peak_dbfs=-45.0))
+    check("allows quiet but real audio", not fails(final_peak_dbfs=-44.0))
     check("rejects too short", fails(audio_duration=8.0, video_info={**info, "duration": 8.0}))
     check("rejects too long", fails(audio_duration=75.0, video_info={**info, "duration": 75.0}))
     check("rejects av desync", fails(video_info={**info, "duration": 26.0}))
@@ -265,7 +423,8 @@ def test_gate() -> None:
 
 
 def main() -> int:
-    for fn in (test_json_extraction, test_prompts, test_tournament, test_dedup,
+    for fn in (test_json_extraction, test_prompts, test_personas,
+               test_caption_cards, test_coherence, test_subject_check, test_tournament, test_dedup,
                test_voice_timing, test_script_cleaning, test_sparse_shot_timing,
                test_briefs_valid, test_image_breaker, test_gate):
         fn()

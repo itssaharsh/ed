@@ -94,6 +94,19 @@ ORPHEUS_VOICES = ("austin", "daniel", "troy", "autumn", "diana", "hannah")
 ORPHEUS_CHAR_LIMIT = 200          # hard cap per request
 EDGE_FALLBACK_VOICE = "en-US-AndrewNeural"
 
+# Groq's Orpheus free tier is 10 RPM. images.py has paced its provider since day one; this
+# module did not, so a 7-beat script fired 7 calls back to back and tripped the limit on the
+# first real run with a key. 6.0s is the arithmetic floor; 7.0 leaves margin for clock skew.
+GROQ_TTS_MIN_INTERVAL = 7.0
+
+# The silence floor, in dBFS peak. Measured on this build: a real render peaks at -1.3 dB,
+# digital silence at -91.0 dB. Anything at or below this is not speech.
+#
+# This exists because edge-tts returns a *valid, well-formed, entirely silent* MP3 when
+# Microsoft's Sec-MS-GEC anti-abuse check rejects the caller - which is what happens from
+# datacenter IPs, i.e. every GitHub Actions runner. A byte-length check does not catch it.
+MIN_VOICE_PEAK_DBFS = -45.0
+
 MAX_DIRECTIONS = 3                # at most 3 directed lines per script
 MAX_NONVERBALS = 1
 MAX_PAUSE_MS = 650
@@ -104,15 +117,58 @@ IMAGE_W, IMAGE_H = 768, 1344      # 9:16; upscaled to 1296x2304 for camera-move 
 IMAGE_STEPS = 4                   # flux-schnell is a 4-step distilled model
 MASTER_W, MASTER_H = 1296, 2304   # 1.2x of 1080x1920 — headroom for zoom/pan
 
+# Style coherence: the largest mean-saturation spread across a video's shots before it stops
+# reading as one production. docs/RESEARCH.md called style adherence "the unsolved quality
+# problem" but never measured it; this is the measurement.
+#
+# Calibrated over the 8 real renders in work/ (2026-09-13):
+#   0.124  neon_late,   4 shots  - per-shot 0.61 0.52 0.64 0.63, unmistakably one look
+#   0.130  flat_absurd, 4 shots  - 0.27 0.40 0.30 0.38, coherent
+#   0.387 - 0.453                - visibly drifting
+#   0.562  grain_docu,  7 shots  - 0.15 0.59 0.23 0.31 0.28 0.03 0.07, photoreal next to
+#                                  near-greyscale next to a warm abstract blob
+#   0.579  flat_absurd, 7 shots  - worst observed
+# Coherent runs cluster at ~0.13 and incoherent ones at ~0.39+, so 0.35 sits in the gap.
+#
+# WARNING ONLY, deliberately. Six of the eight samples trip it - which is the honest signal, not
+# an over-sensitive threshold: every one of those renders came from the keyless `sana` tier that
+# ignores the style contract. Expect this to go quiet once CLOUDFLARE_* is configured and
+# flux-1-schnell honours the contract. Promote it to a hard failure only with renders from a
+# provider that can actually hold a style, and with more than eight samples.
+MAX_SATURATION_RANGE = 0.35
+
 # ── LLM models, in fallback order ───────────────────────────────────────────
-GEMINI_MODELS = ("gemini-2.5-flash",)
-OPENROUTER_MODEL = "moonshotai/kimi-k2.6:free"   # #2 on humour leaderboards, free endpoint
-GROQ_MODELS = ("llama-3.3-70b-versatile", "llama-3.1-8b-instant")
+#
+# Verified against each provider's live model list on 2026-09-12. Re-verify before trusting
+# any of these: free tiers churn, and a stale id here is precisely what killed v1 - every
+# gemini-1.5-* call 404'd, the run continued, and it published a video built from a placeholder.
+GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.5-flash-lite")
+
+# Was "moonshotai/kimi-k2.6:free". The model is still on OpenRouter, but the :free endpoint is
+# gone - Kimi went paid, so RESEARCH.md's "the best humour writer reachable free" is no longer
+# true. Of the 19 remaining :free ids, nemotron-3-ultra is much the largest.
+OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
+
+# Was ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"). Neither is on Groq's free tier any
+# more. These three are, at 30 RPM / 1K RPD / 8K TPM / 200K TPD.
+GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b")
+
 POLLINATIONS_TEXT_MODEL = "openai-fast"
+
+# Groq's free gpt-oss tier is 8,000 TPM, and its limiter counts prompt + max_tokens together.
+# The largest prompt this repo renders is 01_ideate carrying 40 recent premises, ~2.6K tokens.
+# At the old max_tokens of 8192 that is ~10.8K against an 8K ceiling, so every Groq call
+# returned 413 regardless of which model id was set. 4096 leaves comfortable headroom, and the
+# largest output the pipeline ever asks for (12 premises x 7 fields) is ~2.5K.
+LLM_MAX_OUTPUT_TOKENS = 4096
 
 # ── Publishing ──────────────────────────────────────────────────────────────
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
-DEFAULT_PRIVACY = os.environ.get("YOUTUBE_PRIVACY", "private")
+# Public by default. This was "private", and the scheduled workflow relied on that default
+# (it passes `inputs.privacy || 'private'`, and inputs are null on a schedule event) - so every
+# cron run would have uploaded privately and the channel would have stayed empty however many
+# times the pipeline succeeded. Override per-run with --privacy or $YOUTUBE_PRIVACY.
+DEFAULT_PRIVACY = os.environ.get("YOUTUBE_PRIVACY", "public")
 
 
 def _env(*names: str) -> str | None:

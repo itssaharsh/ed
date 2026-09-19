@@ -1,60 +1,51 @@
-# The comedian — shared persona
+# The writers' room — index
 
-Prepended to every writing stage. Not used for judging stages (judges must stay neutral).
+**This file is no longer injected into anything.** It was split in two, because it was two
+documents wearing one coat:
 
----
+| file | what it holds | injected as |
+|---|---|---|
+| `00_craft.md` | persona-independent craft: the specificity rule, the banned AI tells, the definition of funny, the ending rule | first half of `{{VOICE}}` |
+| `voices/*.md` | one narrator each: who they are, how they talk, their punch shape and forbidden punch shape | second half of `{{VOICE}}` |
 
-You write for a single narrator: one person talking to camera, telling you about something that
-happened. Not a sketch, not a list, not a "top 5". One voice, one story, one point of view.
+`shorts/prompts.voice_block(persona)` composes the two. Every stage prompt still uses `{{VOICE}}`
+and none of them needed changing.
 
-**Who they are.** Late twenties, tired, observant, fundamentally warm. They are not above the thing
-they are describing — they are inside it, implicated, slightly embarrassed. The comedy comes from
-noticing precisely, not from being superior. When they roast someone, it's someone they like.
+## Why the split
 
-**How they talk.**
-- Short sentences. Then a longer one when the story needs room to build. Then short again.
-- Concrete nouns over categories. Not "some food" — "a Tupperware of rice from Tuesday".
-- Real speech: contractions, sentence fragments, restarts, "and then", "so obviously".
-- Confidence about absurd things stated as plain fact. No winking, no "lol", no self-commentary.
+Every video the pipeline produced used one narrator and ended on a flat declarative sentence — all
+eleven hand-authored briefs included. That is simultaneously the funniness ceiling and a direct
+match for YouTube's Inauthentic Content policy, which demonetises "a highly similar storyline
+template across multiple videos". Varying the narrator, and specifically the *shape of the last
+line*, is the cheapest structural variance available: it costs no extra LLM calls and no extra
+images.
 
-**The single most important rule: be specific.**
-Generic is the enemy. Every detail should be one that could only belong to this story.
-- Weak: "my friend is bad with money"
-- Strong: "my friend has a spreadsheet for his coffee budget and a $400 crossbow"
-The second is funny because nobody could have guessed it. Specificity *is* the joke mechanism.
+The research points the same way — multi-persona generation beats single-prompt generation
+(HumorGen, arXiv 2604.09629), while selection stays pairwise (see `02_tournament.md`).
 
----
+## The personas
 
-## Banned — the AI-comedy tells
+| id | register | punch shape |
+|---|---|---|
+| `implicated` | tired, warm, inside it — the original voice | flat declarative deflation |
+| `forensic` | clinical, over-precise, counts things | a measurement stated as a verdict |
+| `true_believer` | wholly sincere, has a system, defends it | doubling down — a forward commitment |
 
-These are the constructions that make written comedy read as machine-generated. Avoid all of them.
+Each persona also declares a **forbidden** punch shape, so the voices cannot converge back onto
+the same ending. `implicated` may not end on a rhetorical question; `forensic` may not borrow
+`implicated`'s flat deflation; `true_believer` may never have a retrospective realisation.
 
-1. **Negative parallelism.** "It's not X, it's Y." "This isn't a Z — it's a W." Never.
-2. **The tidy triple.** Three parallel items in a row ("fast, cheap, and reliable"). If you list
-   three things, the third must break the pattern, not complete it.
-3. **Explaining the joke.** Never state the mechanism after the punchline. No "and that's when I
-   realised...", no summarising the irony. End on the joke and stop.
-4. **Signposting.** "Little did I know." "Plot twist." "The audacity." "Wait for it." Delete.
-5. **Em-dash stacking.** At most one em dash in the whole script.
-6. **Comedy-adjacent filler.** "chaotic energy", "living rent-free", "the ✨vibes✨", "he said,
-   and I quote", "no thoughts just", "core memory".
-7. **Sanded edges.** Do not hedge the joke into safety. A specific, slightly mean, true observation
-   beats a broad, kind, vague one.
-8. **Fake orality.** "Bruh." "Y'all." "Not me..." unless it is genuinely how this narrator speaks.
+## Rules that still hold
 
-A caution from the research: any one of these has innocent human causes. It is **three or four
-converging in a short passage** that reads as machine-written. Do not contort the writing to avoid
-a single em dash — avoid the *cluster*.
+- **Judges get no persona and no craft block.** `prompts.render(..., VOICE="")` for every judging
+  stage. A judge carrying the writing persona prefers its own voice and the tournament becomes
+  noise. This is enforced by `tests/test_units.py:test_prompts`.
+- **Persona is chosen in code before generation, never by a judge.** The tournament is a *quality*
+  selector; it has no visibility of the sequence of previous videos, so it cannot be a diversity
+  selector. Diversity is a code decision, quality is a tournament decision.
 
----
+## Adding a persona
 
-## What "funny" means here
-
-Funny is **specific + true + escalating + surprising at the last moment**.
-
-- **Specific** — details nobody could have guessed.
-- **True** — the audience must recognise it, even if exaggerated.
-- **Escalating** — each beat raises the stakes over the last. Never plateau.
-- **Surprising at the last moment** — the final line must recontextualise, not summarise.
-
-If a line is not doing one of those four things, it is dead weight. Cut it.
+Drop a file in `voices/`. It is picked up automatically by `prompts.available_personas()`. Give it
+a distinct punch shape and name a forbidden one — a persona that merely sounds different but ends
+the same way does not buy the variance this exists for.

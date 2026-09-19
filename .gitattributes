@@ -1,0 +1,5 @@
+# The premise store is append-only JSONL written by every run and committed back by the
+# scheduled workflow, which does `git pull --rebase --autostash` first. Two runs that interleave
+# both append at the end of the file, which is a textbook rebase conflict on the last line.
+# A union merge keeps both lines, which is exactly the desired semantics for an append-only log.
+assets/premise_store.jsonl merge=union

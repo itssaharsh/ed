@@ -3,7 +3,8 @@
 
     python run.py                 # generate, gate, and publish (private by default)
     python run.py --dry-run       # everything except the upload
-    python run.py --no-gate       # skip the quality judge (mechanical checks still run)
+    python run.py --no-gate       # skip the quality judge (mechanical checks still run;
+                                  #   implies --dry-run - an unjudged video is never published)
     python run.py --seed 42       # reproducible run
 
 Every stage checkpoints into work/<run_id>/, so a failure late in the run leaves the expensive
@@ -27,11 +28,13 @@ from shorts.config import (
     ORPHEUS_VOICES, TARGET_SECONDS, Config, logger,
 )
 from shorts.fonts import ensure_font
-from shorts.images import generate_all
+from shorts.images import coherence as images_coherence, generate_all
 from shorts.llm import LLM, LLMError
 from shorts.publish import PublishError, upload
 from shorts.qc import run_gate
-from shorts.render import concat_shots, finalize, measure_loudness, probe, render_shot
+from shorts.render import (
+    concat_shots, finalize, measure_loudness, measure_peak, probe, render_shot,
+)
 from shorts.store import Entry, Store
 from shorts.voice import estimate_word_times, synthesize
 from shorts.write import (
@@ -49,10 +52,26 @@ def build(cfg: Config, rng: random.Random, work: Path, *, use_gate: bool) -> dic
     store = Store(cfg.store_path)
     t0 = time.time()
 
+    # ── 0: the writers' room ────────────────────────────────────────────────
+    # Pick which narrator writes this one, before any LLM call. Persona is a *code* decision, not
+    # a judged one: the tournament selects the funniest candidate but has no visibility of the
+    # previous videos, so it can only pick quality, never variety. Seeded, so --seed still
+    # reproduces a run exactly.
+    #
+    # This is currently a uniform draw. It becomes frequency-weighted against the premise store
+    # once that records a persona per entry - which is what stops a run of three forensic videos
+    # in a row rather than merely making it unlikely.
+    #
+    # Note this draw consumes from `rng` before any other stage, so a given --seed produces a
+    # different premise than it did before personas existed. Reproducibility holds going
+    # forward; seeds recorded against older runs will not reproduce those exact videos.
+    persona = rng.choice(prompts.available_personas())
+    logger.info("persona: %s", persona)
+
     # ── 1-2: premise ────────────────────────────────────────────────────────
     category = pick_category(rng)
     logger.info("category: %s", category.id)
-    premises = generate_premises(llm, category, store.recent_premises())
+    premises = generate_premises(llm, category, store.recent_premises(), persona=persona)
     fresh = store.filter_new(premises, key=lambda p: p.text())
     if not fresh:
         raise RuntimeError("every generated premise duplicated something already made")
@@ -62,9 +81,9 @@ def build(cfg: Config, rng: random.Random, work: Path, *, use_gate: bool) -> dic
     checkpoint(work, "02_premise", asdict(premise))
 
     # ── 3-4: script ─────────────────────────────────────────────────────────
-    beats, the_joke = draft_script(llm, premise)
-    beats = punch_up(llm, beats, the_joke, rng)
-    checkpoint(work, "03_beats", {"beats": beats, "the_joke": the_joke})
+    beats, the_joke = draft_script(llm, premise, persona=persona)
+    beats = punch_up(llm, beats, the_joke, rng, persona=persona)
+    checkpoint(work, "03_beats", {"beats": beats, "the_joke": the_joke, "persona": persona})
 
     # ── 5: performance ──────────────────────────────────────────────────────
     voice_name = rng.choice(ORPHEUS_VOICES[:3])       # the male personas read best deadpan
@@ -72,7 +91,7 @@ def build(cfg: Config, rng: random.Random, work: Path, *, use_gate: bool) -> dic
     checkpoint(work, "05_lines", [asdict(l) for l in lines])
 
     # ── 8: speech first, because everything downstream is timed to it ───────
-    audio_path, audio_duration, engine = synthesize(cfg, lines, voice_name, work)
+    audio_path, audio_duration, engine, voice_peak = synthesize(cfg, lines, voice_name, work)
     checkpoint(work, "08_timing", {
         "duration": audio_duration, "engine": engine, "voice": voice_name,
         "lines": [{"index": l.index, "role": l.role, "start": round(l.start, 3),
@@ -88,14 +107,14 @@ def build(cfg: Config, rng: random.Random, work: Path, *, use_gate: bool) -> dic
         cfg, rng, work, lines=lines, shots=shots, style=style, character=character,
         contract=contract, negative=negative, premise=premise, category=category,
         audio_path=audio_path, audio_duration=audio_duration, engine=engine,
-        store=store, llm=llm, use_gate=use_gate, t0=t0,
+        store=store, llm=llm, use_gate=use_gate, t0=t0, voice_peak=voice_peak,
     )
 
 
 def _finish(cfg: Config, rng: random.Random, work: Path, *, lines, shots, style: str,
             character: str, contract: str, negative: str, premise, category,
             audio_path: Path, audio_duration: float, engine: str, store: Store,
-            llm, use_gate: bool, t0: float) -> dict:
+            llm, use_gate: bool, t0: float, voice_peak: float | None = None) -> dict:
     """Stages 6(timing) through 12, shared by the LLM path and the brief path.
 
     Everything from here on is deterministic given the script and the shot list, so both
@@ -124,6 +143,10 @@ def _finish(cfg: Config, rng: random.Random, work: Path, *, lines, shots, style:
             cursor += s["duration"]
         shots = usable
 
+    coh = images_coherence([Path(s["image"]) for s in shots if s.get("image")])
+    logger.info("stage 7: style coherence - saturation spread %.3f across %d shots %s",
+                coh["saturation_range"], coh["shots"], coh["saturations"])
+
     # ── 10: render ──────────────────────────────────────────────────────────
     clips_dir = work / "clips"
     clips_dir.mkdir(exist_ok=True)
@@ -143,17 +166,26 @@ def _finish(cfg: Config, rng: random.Random, work: Path, *, lines, shots, style:
                      duration=audio_duration, fonts_dir=fonts_dir)
     info = probe(final)
     lufs = measure_loudness(final)
-    logger.info("stage 10: rendered %.1fs, %s, %.1f LUFS, %d KB",
+    final_peak = measure_peak(final)
+    logger.info("stage 10: rendered %.1fs, %s, %.1f LUFS, %.1f dBFS peak, %d KB",
                 info.get("duration", 0), f"{info.get('width')}x{info.get('height')}",
-                lufs or 0.0, final.stat().st_size // 1024)
+                lufs if lufs is not None else 0.0,
+                final_peak if final_peak is not None else 0.0,
+                final.stat().st_size // 1024)
 
     script = script_text(lines)
 
     # ── 11: gate ────────────────────────────────────────────────────────────
+    # `llm if use_gate else None` rather than skipping run_gate entirely. The old form meant
+    # --no-gate also silently skipped every *mechanical* check - dimensions, duration, A/V sync,
+    # silence, dedup - which the module docstring explicitly promised still ran. run_gate already
+    # handles llm=None by passing with a warning that the judge was skipped.
     gate = run_gate(
-        llm, cfg, lines=lines, shots=shots, video_info=info, audio_duration=audio_duration,
+        llm if use_gate else None, cfg,
+        lines=lines, shots=shots, video_info=info, audio_duration=audio_duration,
         lufs=lufs, script=script, store=store, premise=premise.text(),
-    ) if use_gate else None
+        voice_peak_dbfs=voice_peak, final_peak_dbfs=final_peak,
+    )
 
     # ── 12: metadata ────────────────────────────────────────────────────────
     meta = dict(getattr(premise, "metadata", None) or {})
@@ -218,7 +250,7 @@ def build_from_brief(cfg: Config, rng: random.Random, work: Path, brief_path: Pa
     checkpoint(work, "05_lines", [asdict(l) for l in lines])
 
     voice_name = rng.choice(ORPHEUS_VOICES[:3])
-    audio_path, audio_duration, engine = synthesize(cfg, lines, voice_name, work)
+    audio_path, audio_duration, engine, voice_peak = synthesize(cfg, lines, voice_name, work)
     checkpoint(work, "08_timing", {
         "duration": audio_duration, "engine": engine, "voice": voice_name,
         "lines": [{"index": l.index, "role": l.role, "start": round(l.start, 3),
@@ -243,7 +275,7 @@ def build_from_brief(cfg: Config, rng: random.Random, work: Path, brief_path: Pa
         character=brief.character_sheet, contract=contract, negative=negative,
         premise=brief.premise, category=category, audio_path=audio_path,
         audio_duration=audio_duration, engine=engine, store=store, llm=llm,
-        use_gate=use_gate, t0=t0,
+        use_gate=use_gate, t0=t0, voice_peak=voice_peak,
     )
 
 
@@ -256,7 +288,9 @@ def main() -> int:
                     help="render a hand-authored brief (see briefs/) instead of writing one "
                          "with an LLM. Works with no API key.")
     ap.add_argument("--dry-run", action="store_true", help="build everything, upload nothing")
-    ap.add_argument("--no-gate", action="store_true", help="skip the LLM quality judge")
+    ap.add_argument("--no-gate", action="store_true",
+                    help="skip the LLM quality judge (mechanical checks still run; "
+                         "implies --dry-run)")
     ap.add_argument("--seed", type=int, default=None)
     ap.add_argument("--privacy", choices=["private", "unlisted", "public"], default=None)
     args = ap.parse_args()
@@ -264,10 +298,14 @@ def main() -> int:
     cfg = Config()
     if args.doctor:
         from shorts.doctor import run as doctor_run
-        return doctor_run(cfg)
+        return doctor_run(cfg, brief=bool(args.brief))
     if args.privacy:
         cfg.privacy = args.privacy
-    cfg.dry_run = args.dry_run
+    # --no-gate implies --dry-run. CLAUDE.md: "the gate fails closed ... do not add a publish
+    # anyway path", and an unjudged upload is exactly that path.
+    if args.no_gate and not args.dry_run:
+        logger.warning("--no-gate implies --dry-run: refusing to publish an unjudged video")
+    cfg.dry_run = args.dry_run or args.no_gate
 
     seed = args.seed if args.seed is not None else random.randrange(10**9)
     rng = random.Random(seed)

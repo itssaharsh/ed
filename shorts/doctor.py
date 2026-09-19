@@ -11,6 +11,7 @@ from pathlib import Path
 import requests
 
 from .config import CF_IMAGE_MODEL, Config, ORPHEUS_MODEL, logger
+from .llm import _groq, _openrouter
 
 OK, WARN, BAD = "ok", "degraded", "missing"
 _MARK = {OK: "  ok    ", WARN: "  warn  ", BAD: "  FAIL  "}
@@ -38,9 +39,18 @@ def check_llm(cfg: Config) -> tuple[str, str, str]:
         except Exception as exc:  # noqa: BLE001
             return _row(BAD, "LLM", f"gemini key set but failing: {str(exc)[:90]}")
 
-    if cfg.openrouter_key or cfg.groq_key:
-        which = "openrouter" if cfg.openrouter_key else "groq"
-        return _row(WARN, "LLM", f"{which} configured (not probed); gemini recommended")
+    # Actually probe the fallbacks. "configured (not probed)" defeats the point of a preflight -
+    # and these are exactly the rungs whose model ids go stale silently.
+    for which, probe in (("groq", _groq), ("openrouter", _openrouter)):
+        if not (cfg.groq_key if which == "groq" else cfg.openrouter_key):
+            continue
+        try:
+            text = probe(cfg, "Reply with the single word OK.", temperature=0.0, want_json=False)
+            if text.strip():
+                return _row(WARN, "LLM", f"{which} responding; gemini recommended for writing")
+            return _row(BAD, "LLM", f"{which} key set but returned empty text")
+        except Exception as exc:  # noqa: BLE001
+            return _row(BAD, "LLM", f"{which} key set but failing: {str(exc)[:90]}")
 
     return _row(BAD, "LLM", "no key - the pipeline cannot run. Set GEMINI_API_KEY.")
 
@@ -134,7 +144,7 @@ def check_upload(cfg: Config) -> tuple[str, str, str]:
         if c.expired and c.refresh_token:
             c.refresh(Request())
         if c.valid:
-            return _row(OK, "upload", f"youtube token valid (privacy={cfg.privacy}, 6 uploads/day cap)")
+            return _row(OK, "upload", f"youtube token valid (privacy={cfg.privacy}, 100 uploads/day cap)")
         return _row(BAD, "upload", "youtube token is not valid")
     except Exception as exc:  # noqa: BLE001
         hint = (" - refresh token revoked; re-run the OAuth flow and publish your consent "
@@ -151,7 +161,13 @@ def check_memory(cfg: Config) -> tuple[str, str, str]:
     return _row(OK, "memory", f"{n} past premises recorded, dedup active")
 
 
-def run(cfg: Config) -> int:
+def run(cfg: Config, *, brief: bool = False) -> int:
+    """Probe every provider. `brief` relaxes the LLM requirement.
+
+    A hand-authored brief supplies stages 1-6, so the pipeline genuinely runs with no LLM key at
+    all (run.py exempts it, and qc.run_gate passes with a warning when llm is None). Reporting
+    "cannot run" there is simply wrong, and --doctor is the first thing anyone checks.
+    """
     print("\nchecking providers\n")
     rows = [
         check_llm(cfg),
@@ -166,11 +182,15 @@ def run(cfg: Config) -> int:
     warn = [r for r in rows if r[0] == WARN]
 
     print()
-    blocking = [r for r in bad if r[1] in ("LLM", "images", "render")]
+    required = ("images", "render") if brief else ("LLM", "images", "render")
+    blocking = [r for r in bad if r[1] in required]
     if blocking:
         print(f"cannot run: {', '.join(r[1] for r in blocking)}")
         print("see docs/SETUP.md")
         return 1
+    if brief and any(r[1] == "LLM" for r in bad):
+        print("no LLM: the brief path will run, but the comedy judge cannot. "
+              "Quality rests entirely on whoever wrote the brief.")
     if warn:
         print(f"will run, degraded: {', '.join(r[1] for r in warn)}")
         print("see docs/SETUP.md to unlock the good paths")

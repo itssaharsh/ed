@@ -15,3 +15,6 @@ assets/fonts/*.ttf
 .venv/
 __pycache__/
 *.pyc
+
+# graphify knowledge graph - generated artefact, rebuilt with `graphify update`
+graphify-out/

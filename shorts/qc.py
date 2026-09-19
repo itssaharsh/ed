@@ -18,7 +18,8 @@ from pathlib import Path
 
 from . import prompts
 from .config import (
-    MAX_DURATION, MAX_WORDS, MIN_DURATION, MIN_WORDS, Config, logger,
+    MAX_DURATION, MAX_SATURATION_RANGE, MAX_WORDS, MIN_DURATION, MIN_VOICE_PEAK_DBFS,
+    MIN_WORDS, Config, logger,
 )
 from .llm import LLM, LLMError
 from .store import Store
@@ -52,7 +53,8 @@ class GateResult:
 
 def mechanical_checks(*, lines: list[Line], shots: list[dict], video_info: dict,
                       audio_duration: float, lufs: float | None, script: str,
-                      store: Store, premise: str) -> tuple[list[str], list[str]]:
+                      store: Store, premise: str, voice_peak_dbfs: float | None = None,
+                      final_peak_dbfs: float | None = None) -> tuple[list[str], list[str]]:
     fails: list[str] = []
     warns: list[str] = []
 
@@ -78,6 +80,20 @@ def mechanical_checks(*, lines: list[Line], shots: list[dict], video_info: dict,
     if usable and len(distinct) < max(2, len(usable) // 2):
         fails.append(f"only {len(distinct)} distinct images across {len(usable)} shots")
 
+    # Does the video read as one production? Every shot can pass is_usable() individually and
+    # still sit in a different world from its neighbours - which is the single most visible
+    # "cheap AI video" tell, and the thing docs/RESEARCH.md flagged as unsolved and unmeasured.
+    # Warning rather than failure while the keyless tier is in play; see config for the evidence.
+    if len(usable) >= 2:
+        from .images import coherence
+        coh = coherence([Path(s["image"]) for s in usable])
+        if coh["saturation_range"] > MAX_SATURATION_RANGE:
+            warns.append(
+                f"shots do not read as one production: saturation spread "
+                f"{coh['saturation_range']:.2f} > {MAX_SATURATION_RANGE} "
+                f"(per-shot {coh['saturations']})"
+            )
+
     words = script.split()
     if not (MIN_WORDS <= len(words) <= MAX_WORDS):
         fails.append(f"script is {len(words)} words, outside {MIN_WORDS}-{MAX_WORDS}")
@@ -86,7 +102,25 @@ def mechanical_checks(*, lines: list[Line], shots: list[dict], video_info: dict,
     if caption_words < MIN_CAPTION_WORDS:
         fails.append(f"only {caption_words} caption words (need {MIN_CAPTION_WORDS})")
 
-    if lufs is not None and not (LUFS_RANGE[0] <= lufs <= LUFS_RANGE[1]):
+    # Silence is a hard failure, not a warning.
+    #
+    # This is the one check standing between a broken TTS provider and a published video with no
+    # sound. It has to be a failure: `has_audio` above only proves an audio *stream* exists, and
+    # a silent stream satisfies it. edge-tts returns valid, correctly-sized, entirely silent
+    # audio when Microsoft's anti-abuse check rejects the caller - routine from a CI runner's
+    # datacenter IP - so nothing upstream of here catches it either.
+    if final_peak_dbfs is None:
+        fails.append("could not measure the rendered audio peak")
+    elif final_peak_dbfs <= MIN_VOICE_PEAK_DBFS:
+        fails.append(f"the rendered video's audio is silent ({final_peak_dbfs:.1f} dBFS peak)")
+    if voice_peak_dbfs is not None and voice_peak_dbfs <= MIN_VOICE_PEAK_DBFS:
+        fails.append(f"the narration track is silent ({voice_peak_dbfs:.1f} dBFS peak)")
+
+    # measure_loudness returns None only on a genuine measurement failure now that -inf parses,
+    # and an unmeasurable render is not something to publish unverified.
+    if lufs is None:
+        fails.append("could not measure loudness")
+    elif not (LUFS_RANGE[0] <= lufs <= LUFS_RANGE[1]):
         warns.append(f"loudness {lufs:.1f} LUFS outside {LUFS_RANGE}")
 
     for ln in lines:
@@ -137,10 +171,13 @@ def judge_quality(llm: LLM, cfg: Config, script: str, duration: float,
 
 def run_gate(llm: LLM, cfg: Config, *, lines: list[Line], shots: list[dict],
              video_info: dict, audio_duration: float, lufs: float | None,
-             script: str, store: Store, premise: str) -> GateResult:
+             script: str, store: Store, premise: str,
+             voice_peak_dbfs: float | None = None,
+             final_peak_dbfs: float | None = None) -> GateResult:
     fails, warns = mechanical_checks(
         lines=lines, shots=shots, video_info=video_info, audio_duration=audio_duration,
         lufs=lufs, script=script, store=store, premise=premise,
+        voice_peak_dbfs=voice_peak_dbfs, final_peak_dbfs=final_peak_dbfs,
     )
     if fails:
         # Do not spend a judge call on a structurally broken video.

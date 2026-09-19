@@ -4,7 +4,7 @@ Everything here is free. The whole point of the stack is that no step needs a ca
 
 ## The one thing you must have
 
-**An LLM API key.** The pipeline makes ~14 model calls per video and there is no usable keyless
+**An LLM API key.** The pipeline makes **~36** model calls per video and there is no usable keyless
 option — the anonymous Pollinations text tier allows a handful of requests and then returns
 `401 A valid API key is required` regardless of pacing (probed, 2026-08-22).
 
@@ -13,7 +13,7 @@ Pick one:
 | Provider | Free tier | Get a key |
 |---|---|---|
 | **Google Gemini** *(recommended)* | 500 requests/day on `gemini-2.5-flash` | <https://aistudio.google.com/apikey> |
-| OpenRouter | `moonshotai/kimi-k2.6:free` — zero token cost, rate-limited | <https://openrouter.ai/keys> |
+| OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` — zero token cost, rate-limited. (Kimi's `:free` endpoint is gone; the model went paid.) | <https://openrouter.ai/keys> |
 | Groq | generous daily allowance | <https://console.groq.com/keys> |
 
 ```bash
@@ -91,7 +91,9 @@ open('credentials.json','w').write(f.run_local_server(port=0).to_json())
 "
 ```
 
-**Quota:** 10,000 units/day, `videos.insert` costs 1,600 → **6 uploads/day, hard ceiling.**
+**Quota:** `videos.insert` has its own bucket — 1 unit per call, **100 uploads/day**, separate
+from the 10,000-unit pool every other endpoint shares. (It cost 1,600 units of the shared pool
+until Google's Dec 2025 / June 2026 changes, which is where the old 6/day figure came from.)
 
 ---
 

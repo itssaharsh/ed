@@ -11,7 +11,7 @@ imageio-ffmpeg>=0.5.1
 google-genai>=1.0.0
 
 # TTS fallback when GROQ_API_KEY is absent
-edge-tts==7.2.8
+edge-tts>=7.2.8          # never ==: Microsoft rotates the Sec-MS-GEC token and only current releases track it
 
 # YouTube upload
 google-api-python-client==2.167.0

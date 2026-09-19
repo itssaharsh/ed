@@ -16,13 +16,17 @@ import io
 import math
 import struct
 import subprocess
+import threading
+import time
 import wave
 from pathlib import Path
 
+import numpy as np
 import requests
 
 from .config import (
-    EDGE_FALLBACK_VOICE, ORPHEUS_CHAR_LIMIT, ORPHEUS_MODEL, Config, logger,
+    EDGE_FALLBACK_VOICE, GROQ_TTS_MIN_INTERVAL, MIN_VOICE_PEAK_DBFS,
+    ORPHEUS_CHAR_LIMIT, ORPHEUS_MODEL, Config, logger,
 )
 from .write import Line
 
@@ -40,17 +44,44 @@ def ffmpeg_bin() -> str:
 
 # ── Synthesis providers ─────────────────────────────────────────────────────
 
+_groq_tts_lock = threading.Lock()
+_groq_tts_last = 0.0
+
+
+def _groq_tts_wait() -> None:
+    """Process-wide pacing for Orpheus, mirroring images._pollinations_wait.
+
+    Orpheus is 10 RPM. A 7-beat script fires 7+ calls, so without this every run with a key
+    trips the limit partway through and silently falls back to edge-tts mid-script.
+    """
+    global _groq_tts_last
+    with _groq_tts_lock:
+        gap = time.monotonic() - _groq_tts_last
+        if gap < GROQ_TTS_MIN_INTERVAL:
+            time.sleep(GROQ_TTS_MIN_INTERVAL - gap)
+        _groq_tts_last = time.monotonic()
+
+
 def _orpheus(cfg: Config, text: str, voice: str, direction: str | None) -> bytes:
     """Groq-hosted Orpheus. Free tier: 10 RPM / 100 RPD. 200 chars per request, hard."""
     payload = f"[{direction}] {text}" if direction else text
     if len(payload) > ORPHEUS_CHAR_LIMIT:
         raise VoiceError(f"line too long for orpheus ({len(payload)} chars)")
+    _groq_tts_wait()
     r = requests.post(
         "https://api.groq.com/openai/v1/audio/speech",
         headers={"Authorization": f"Bearer {cfg.groq_key}", "Content-Type": "application/json"},
         json={"model": ORPHEUS_MODEL, "voice": voice, "input": payload, "response_format": "wav"},
         timeout=120,
     )
+    # Groq reports the remaining budget on every response. Log it: this is the only way to
+    # settle whether the documented 3.6K TPD counts characters (~5 videos/day) or tokens
+    # (~23/day), which is the binding constraint on how many videos a day are possible.
+    remaining = {k: v for k, v in r.headers.items()
+                 if k.lower().startswith("x-ratelimit-remaining")}
+    if remaining:
+        logger.info("orpheus budget: %s", ", ".join(f"{k.split('-')[-1]}={v}"
+                                                    for k, v in sorted(remaining.items())))
     if r.status_code != 200:
         raise VoiceError(f"orpheus {r.status_code}: {r.text[:200]}")
     if len(r.content) < 1000:
@@ -104,6 +135,24 @@ def _to_wav(raw: bytes, out: Path) -> Path:
 def wav_duration(path: Path) -> float:
     with wave.open(str(path), "rb") as w:
         return w.getnframes() / float(w.getframerate())
+
+
+def peak_dbfs(path: Path) -> float:
+    """Peak amplitude of a WAV in dBFS. -inf silence is reported as -120.0.
+
+    Cheap enough to run on every chunk: numpy over the raw frames, no subprocess.
+    """
+    with wave.open(str(path), "rb") as w:
+        frames = w.readframes(w.getnframes())
+    if not frames:
+        return -120.0
+    samples = np.frombuffer(frames, dtype=np.int16)
+    if samples.size == 0:
+        return -120.0
+    peak = int(np.abs(samples).max())
+    if peak == 0:
+        return -120.0
+    return 20.0 * math.log10(peak / 32768.0)
 
 
 def _silence(seconds: float, out: Path) -> Path:
@@ -165,20 +214,47 @@ def _split_for_limit(text: str, limit: int) -> list[str]:
 
 # ── Main entry ──────────────────────────────────────────────────────────────
 
-def synthesize(cfg: Config, lines: list[Line], voice: str, work: Path) -> tuple[Path, float, str]:
-    """Render every line, insert designed silences, concatenate.
+class _OrpheusUnavailable(RuntimeError):
+    """Raised to abandon Orpheus for the whole script, not just one chunk."""
 
-    Mutates each Line with its measured `duration` and absolute `start`, so captions and shot
-    cuts downstream lock to the real performance rather than an estimate.
+
+def _speak(cfg: Config, text: str, voice: str, direction: str | None, *,
+           engine: str, out_stem: Path) -> tuple[Path, float]:
+    """Synthesise one chunk and prove it contains sound. Returns (trimmed wav, duration).
+
+    The liveness check is the point. edge-tts answers a rejected request with a well-formed,
+    correctly-sized, entirely silent clip - so byte-length tells you nothing. Without this a
+    silent video renders cleanly, passes QC and publishes, which is exactly how the previous
+    pipeline uploaded a video built from a placeholder.
     """
-    audio_dir = work / "audio"
-    audio_dir.mkdir(parents=True, exist_ok=True)
+    if engine == "orpheus":
+        try:
+            raw = _orpheus(cfg, text, voice, direction)
+        except Exception as exc:  # noqa: BLE001
+            raise _OrpheusUnavailable(str(exc)[:160]) from exc
+    else:
+        raw = _edge(text)
 
-    use_orpheus = bool(cfg.groq_key)
-    engine = "orpheus" if use_orpheus else "edge-tts"
+    wav = _to_wav(raw, out_stem.with_name(out_stem.name + ".wav"))
+    wav = _trim_edges(wav, out_stem.with_name(out_stem.name + "_t.wav"))
+
+    peak = peak_dbfs(wav)
+    if peak <= MIN_VOICE_PEAK_DBFS:
+        msg = f"{engine} returned silence ({peak:.1f} dBFS) for {text[:40]!r}"
+        if engine == "orpheus":
+            raise _OrpheusUnavailable(msg)
+        raise VoiceError(
+            f"{msg}. edge-tts serves silent audio when Microsoft's anti-abuse check rejects "
+            f"the caller, which is normal from datacenter IPs such as CI runners."
+        )
+    return wav, wav_duration(wav)
+
+
+def _perform(cfg: Config, lines: list[Line], voice: str, audio_dir: Path,
+             engine: str) -> tuple[list[Path], float]:
+    """Synthesise every line with one engine. Mutates Line.start/.duration/.audio_path."""
     segments: list[Path] = []
     cursor = 0.0
-    degraded = False
 
     for line in lines:
         if line.pause_before_ms > 0:
@@ -188,21 +264,12 @@ def synthesize(cfg: Config, lines: list[Line], voice: str, work: Path) -> tuple[
 
         chunks = _split_for_limit(line.text, ORPHEUS_CHAR_LIMIT - 16)
         line_start = cursor
+        wav = None
         for ci, chunk in enumerate(chunks):
-            raw: bytes | None = None
-            if use_orpheus:
-                try:
-                    raw = _orpheus(cfg, chunk, voice, line.direction if ci == 0 else None)
-                except Exception as exc:  # noqa: BLE001
-                    logger.warning("orpheus failed on line %d chunk %d (%s); using edge-tts",
-                                   line.index, ci, str(exc)[:120])
-                    degraded = True
-            if raw is None:
-                raw = _edge(chunk)
-
-            wav = _to_wav(raw, audio_dir / f"line_{line.index:02d}_{ci}.wav")
-            wav = _trim_edges(wav, audio_dir / f"line_{line.index:02d}_{ci}_t.wav")
-            dur = wav_duration(wav)
+            wav, dur = _speak(
+                cfg, chunk, voice, line.direction if ci == 0 else None,
+                engine=engine, out_stem=audio_dir / f"line_{line.index:02d}_{ci}",
+            )
             segments.append(wav)
             cursor += dur
 
@@ -215,13 +282,50 @@ def synthesize(cfg: Config, lines: list[Line], voice: str, work: Path) -> tuple[
         line.duration = cursor - line_start
         line.audio_path = str(wav)
 
+    return segments, cursor
+
+
+# ── Main entry ──────────────────────────────────────────────────────────────
+
+def synthesize(cfg: Config, lines: list[Line], voice: str,
+               work: Path) -> tuple[Path, float, str, float]:
+    """Render every line, insert designed silences, concatenate.
+
+    Mutates each Line with its measured `duration` and absolute `start`, so captions and shot
+    cuts downstream lock to the real performance rather than an estimate.
+
+    Returns (path, seconds, engine, peak_dbfs). The peak is returned rather than merely checked
+    so the QC gate can fail on it independently, downstream of the render.
+
+    The engine is chosen once for the whole script. The previous per-chunk fallback meant an
+    Orpheus rate-limit at line 4 produced a video that changed narrator halfway through the
+    joke - audible, and only recorded as "partial" in a log line. Re-synthesising from line 0
+    is nearly free: this stage runs before image generation in both entry paths, so a restart
+    costs seconds rather than any expensive artefact.
+    """
+    audio_dir = work / "audio"
+    audio_dir.mkdir(parents=True, exist_ok=True)
+
+    engine = "orpheus" if cfg.groq_key else "edge-tts"
+    try:
+        segments, _ = _perform(cfg, lines, voice, audio_dir, engine)
+    except _OrpheusUnavailable as exc:
+        logger.warning("orpheus unavailable (%s); re-synthesising the whole script with edge-tts",
+                       exc)
+        engine = "edge-tts"
+        segments, _ = _perform(cfg, lines, voice, audio_dir, engine)
+
     out = work / "voice.wav"
     _concat(segments, out)
     total = wav_duration(out)
-    if degraded and engine == "orpheus":
-        engine = "orpheus (partial, edge-tts fallback used)"
-    logger.info("stage 8: %.1fs of speech via %s across %d lines", total, engine, len(lines))
-    return out, total, engine
+
+    peak = peak_dbfs(out)
+    if peak <= MIN_VOICE_PEAK_DBFS:
+        raise VoiceError(f"assembled narration is silent ({peak:.1f} dBFS); refusing to render")
+
+    logger.info("stage 8: %.1fs of speech via %s across %d lines (peak %.1f dBFS)",
+                total, engine, len(lines), peak)
+    return out, total, engine, peak
 
 
 def _concat(segments: list[Path], out: Path) -> Path:

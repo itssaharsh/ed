@@ -176,23 +176,47 @@ so the pipeline can always produce output.
 
 | Stage | Primary | Then | Then | Keyless floor |
 |---|---|---|---|---|
-| LLM | Gemini `gemini-2.5-flash` (500 RPD) | OpenRouter `moonshotai/kimi-k2.6:free` | Groq | Pollinations `openai-fast` |
+| LLM | Gemini `gemini-2.5-flash` (500 RPD) | OpenRouter `nvidia/nemotron-3-ultra-550b-a55b:free` | Groq `openai/gpt-oss-120b` | *(none — see below)* |
 | Images | Cloudflare `@cf/black-forest-labs/flux-1-schnell` (~145/day) | Pollinations + token | — | Pollinations anonymous (`sana`) |
-| Voice | Groq Orpheus (100 RPD) | Gemini TTS (15 RPD) | — | `edge-tts` |
+| Voice | Groq Orpheus (100 RPD) | *(Gemini TTS — documented, never implemented)* | — | `edge-tts` |
 
 The one thing that never degrades is the **QC gate**. If quality cannot be established, the run
 publishes nothing.
 
+**The LLM ladder no longer ends keyless.** It used to, on principle. But keyless Pollinations text
+returns 401 on the *first* anonymous request (probed 2026-09-12), so the rung served nothing and
+cost two 120s timeouts on every total-failure path. It is now only added when
+`POLLINATIONS_TOKEN` is set. This aligns the code with what CLAUDE.md already said — "there is no
+working keyless text tier" — at the cost of the every-ladder-ends-keyless principle, which was
+describing a floor that had quietly stopped existing. Images and voice still end keyless, and
+those floors are real and tested.
+
 ---
 
-## Daily budget at 6 videos/day
+## Daily budget at 12 videos/day
 
 | Resource | Used | Free cap | Headroom |
 |---|---|---|---|
-| Cloudflare neurons | ~10 imgs x 69 x 6 = **4,140** | 10,000/day | 2.4x |
-| Groq Orpheus calls | ~5 x 6 = **30** | 100/day | 3.3x |
-| Gemini text calls | ~14 x 6 = **84** | 500/day | 5.9x |
-| YouTube upload units | 1600 x 6 = **9,600** | 10,000/day | **1.04x ← tightest** |
+| Cloudflare neurons | ~10 imgs x 69 x 12 = **8,280** | 10,000/day | 1.2x |
+| **Groq Orpheus calls** | ~7 x 12 = **84** | 100/day | **1.2x ← tightest** |
+| Gemini text calls | ~36 x 12 = **432** | 500/day | 1.2x |
+| YouTube `videos.insert` | 1 unit x 12 = **12** | **100 calls/day (own bucket)** | 8.3x |
+| GitHub Actions minutes | ~12 x 15 min | unlimited (public repo) | — |
 
-The binding constraint is the YouTube API quota, exactly as before: **6 uploads/day is a hard
-ceiling** per Google Cloud project.
+**The YouTube quota is no longer the binding constraint.** It was, and the whole schedule was
+built around it: `videos.insert` cost 1,600 units of a shared 10,000/day pool, so 6 uploads/day
+was a hard per-project ceiling. Google cut that cost in Dec 2025 and moved uploads into their own
+bucket in June 2026. It is now **1 unit per call against a dedicated 100 calls/day** — see
+`determine_quota_cost`. Anything in this repo still asserting 6/day is stale.
+
+The constraint now is **Groq Orpheus at 100 requests/day**, and before that the per-run image
+wall-clock (7–27 min keyless, much less with Cloudflare configured).
+
+⚠️ **Unverified:** Orpheus also documents 3.6K TPD. If that counts *characters* rather than
+tokens, the real ceiling is ~5 videos/day, not 14. `voice.py` logs the
+`x-ratelimit-remaining-*` headers on every call — read them off the first real run and correct
+this table.
+
+Note the corrected LLM figure: the pipeline makes **~36 calls per video**, not the "~14" that
+`config.py` claimed (ideate 1 + premise tournament ≤19 + script 1 + punch-up gen 1 + punch-up
+tournament ≤10 + direct 1 + shotlist 1 + qc 1 + metadata 1).

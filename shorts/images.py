@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import io
 import random
+import re
 import threading
 import time
 import urllib.parse
@@ -20,6 +21,7 @@ from pathlib import Path
 import requests
 
 from .config import (
+    GEMINI_MODELS,
     CF_IMAGE_MODEL, IMAGE_H, IMAGE_STEPS, IMAGE_W, MASTER_H, MASTER_W, Config, logger,
 )
 
@@ -169,6 +171,42 @@ def is_usable(stats: dict) -> tuple[bool, str]:
     return True, "ok"
 
 
+def coherence(paths: list[Path]) -> dict:
+    """Does this set of shots read as one production?
+
+    Returns the spread of mean saturation and mean luminance across the shots, plus the per-shot
+    values. Saturation is the axis that matters: measured across the eight renders in work/,
+    luminance stayed within 26-79 points regardless of how incoherent the video looked, while
+    saturation separated cleanly - coherent videos clustered around a 0.13 spread and incoherent
+    ones around 0.39-0.58. A video whose shots range from near-greyscale to heavily saturated
+    does not read as one production no matter how good each frame is on its own.
+
+    Cheap: one downsampled pass per image, no model, no network.
+    """
+    import numpy as np
+    from PIL import Image
+
+    sats, lums = [], []
+    for p in paths:
+        try:
+            a = np.asarray(Image.open(p).convert("RGB").resize((128, 224))).astype(np.float32)
+        except Exception:  # noqa: BLE001 - a missing shot is the caller's problem, not ours
+            continue
+        mx, mn = a.max(axis=2), a.min(axis=2)
+        sats.append(float(np.where(mx > 0, (mx - mn) / np.maximum(mx, 1), 0).mean()))
+        lums.append(float(a.mean()))
+
+    if len(sats) < 2:
+        return {"shots": len(sats), "saturation_range": 0.0, "luminance_range": 0.0,
+                "saturations": sats}
+    return {
+        "shots": len(sats),
+        "saturation_range": max(sats) - min(sats),
+        "luminance_range": max(lums) - min(lums),
+        "saturations": [round(x, 3) for x in sats],
+    }
+
+
 def _to_master(data: bytes, out_path: Path) -> Path:
     """Normalise to the 1296x2304 master used by the renderer.
 
@@ -186,6 +224,82 @@ def _to_master(data: bytes, out_path: Path) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     img.save(out_path, "PNG")
     return out_path
+
+
+# ── Subject verification ────────────────────────────────────────────────────
+#
+# is_usable() proves an image is not a flat field and not a 1-D gradient. It cannot tell you
+# whether the image shows the thing that was asked for, and on the keyless tier that is the
+# dominant failure: in one measured 7-shot render, "a man standing in front of an open office
+# fridge" came back as an empty corridor, "a strip of masking tape on a plastic container" as an
+# abstract beige blob, and only the jar of mustard was actually the requested subject. All seven
+# passed is_usable. A shot that does not show the subject cannot do its job in the joke - and
+# 06_shotlist.md's core rule is "visualise literally, not metaphorically".
+
+_SUBJECT_RE = re.compile(
+    r"^\s*(?:an?\s+)?(?:extreme[- ]close[- ]?up|close[- ]?up|wide|medium|over[- ]the[- ]shoulder|"
+    r"over[- ]shoulder)\s+(?:shot\s+)?(?:of\s+)?", re.I)
+
+
+def subject_of(prompt: str) -> str:
+    """The concrete subject of a shot prompt, for the vision check.
+
+    06_shotlist.md fixes the format as `[shot size] of [subject] [doing what], [expression],
+    [environment], [light]`, so the subject is what remains after the shot size and before the
+    first comma. Falls back to the leading clause if the prompt is shaped differently.
+    """
+    head = prompt.split(",")[0].strip()
+    return _SUBJECT_RE.sub("", head).strip() or head
+
+
+def _parse_verdict(text: str) -> tuple[bool | None, str]:
+    """Read a yes/no verdict out of the model's reply. Unrecognised means 'do not know'."""
+    t = (text or "").strip().lower()
+    if t.startswith("yes"):
+        return True, ""
+    if t.startswith("no"):
+        return False, t[:120]
+    if "yes" in t[:24]:
+        return True, ""
+    if "no" in t[:24]:
+        return False, t[:120]
+    return None, f"unparseable verdict: {t[:80]}"
+
+
+def depicts_subject(cfg: Config, data: bytes, prompt: str) -> tuple[bool | None, str]:
+    """Does this image actually show the shot's subject? (True / False / None = unknown).
+
+    Uses Gemini's free vision tier. This is a factual visual question, not a quality rating, so
+    it is a single yes/no rather than a pairwise comparison - CLAUDE.md's pairwise rule exists
+    because absolute *humour* scores collapse, which does not apply to "is there a fridge in this
+    picture".
+
+    **Fails open on purpose**, unlike the QC gate. If the vision model is unreachable the caller
+    keeps the image, because the alternative is a provider outage halting all image generation and
+    producing no video at all. The gate refuses to publish unverified comedy; this refuses only to
+    waste a regeneration on a check it could not run.
+    """
+    if not cfg.gemini_key:
+        return None, "no gemini key"
+    subject = subject_of(prompt)
+    try:
+        from google import genai
+        from google.genai import types
+
+        client = genai.Client(api_key=cfg.gemini_key)
+        resp = client.models.generate_content(
+            model=GEMINI_MODELS[0],
+            contents=[
+                types.Part.from_bytes(data=data, mime_type="image/png"),
+                "Answer with one word, yes or no, then at most eight words of reason.\n"
+                f"Does this image clearly show: {subject}?",
+            ],
+            config=types.GenerateContentConfig(temperature=0.0, max_output_tokens=64),
+        )
+        return _parse_verdict(resp.text or "")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("subject check unavailable (%s); keeping the image", str(exc)[:100])
+        return None, "check unavailable"
 
 
 def generate_one(cfg: Config, prompt: str, negative: str, seed: int, out_path: Path) -> tuple[Path, str]:
@@ -208,6 +322,11 @@ def generate_one(cfg: Config, prompt: str, negative: str, seed: int, out_path: P
                 ok, reason = is_usable(stats)
                 if not ok:
                     raise ImageError(reason)
+                shows, why = depicts_subject(cfg, data, prompt)
+                if shows is False:
+                    # Burn the attempt and re-roll with a different seed, exactly as for a
+                    # structurally bad frame. None (check unavailable) keeps the image.
+                    raise ImageError(f"does not show {subject_of(prompt)!r}: {why}")
                 _to_master(data, out_path)
                 return out_path, name
             except Exception as exc:  # noqa: BLE001

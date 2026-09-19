@@ -15,9 +15,13 @@ from pathlib import Path
 from .config import CAPTION_BAND_Y, HEIGHT, WIDTH, logger
 
 # Words per caption card. 2-3 is the Shorts convention: enough to read in one saccade, few enough
-# that the highlight keeps moving.
+# that the highlight keeps moving. This is a *maximum*, not a quota - see _should_break.
 WORDS_PER_CARD = 3
 MIN_CARD_SECONDS = 0.42
+
+# Punctuation that ends a thought. A card must never span one of these.
+_SENTENCE_END = (".", "!", "?", "…")
+_CLAUSE_END = (",", ";", ":", "-")
 
 
 def _ts(seconds: float) -> str:
@@ -32,6 +36,30 @@ def _esc(text: str) -> str:
     return text.replace("\\", "").replace("{", "(").replace("}", ")")
 
 
+def _should_break(cur: list[tuple[float, float, str, bool]],
+                  w: tuple[float, float, str, bool]) -> bool:
+    """Decide whether the card ends after word `w`.
+
+    Grouping used to be a flat every-third-word counter, which regularly produced cards that
+    straddled a sentence end - "FRIDGE ITEMS. NOT", "THE TAPE. THE", "DATE. EVERY SINGLE" were all
+    real output. On a Short that is worse than untidy: the caption is the *visual* beat, and
+    gluing the end of one thought to the start of the next steps on the timing the delivery stage
+    worked to create. The audio already pauses there; the caption should too.
+
+    Priority order: a finished sentence always breaks, an emphasised word breaks (so the punch
+    word carries its own card), a clause break lands if the card is already readable, and the
+    word cap is the last resort rather than the rule.
+    """
+    text = w[2].rstrip()
+    if text.endswith(_SENTENCE_END):
+        return True
+    if w[3] and len(cur) >= 2:            # emphasised word gets full weight
+        return True
+    if text.endswith(_CLAUSE_END) and len(cur) >= 2:
+        return True
+    return len(cur) >= WORDS_PER_CARD
+
+
 def build_ass(words: list[tuple[float, float, str, bool]], out: Path,
               font: str = "Anton", font_size: int = 118) -> Path:
     """Group word timings into cards with a per-word karaoke highlight."""
@@ -39,8 +67,7 @@ def build_ass(words: list[tuple[float, float, str, bool]], out: Path,
     cur: list[tuple[float, float, str, bool]] = []
     for w in words:
         cur.append(w)
-        # Break early on an emphasised word so the punch word gets its own card and full weight.
-        if len(cur) >= WORDS_PER_CARD or (w[3] and len(cur) >= 2):
+        if _should_break(cur, w):
             cards.append(cur)
             cur = []
     if cur:

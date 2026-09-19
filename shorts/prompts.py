@@ -36,14 +36,45 @@ def _body(name: str) -> str:
     return (parts[1] if len(parts) > 1 else text).strip()
 
 
+DEFAULT_PERSONA = "implicated"
+
+
 @lru_cache(maxsize=1)
-def voice_block() -> str:
-    """The shared comedian persona, injected into writing prompts as {{VOICE}}.
+def craft_block() -> str:
+    """Persona-independent craft: the specificity rule, the banned AI tells, what funny means."""
+    return _body("00_craft")
+
+
+def available_personas() -> list[str]:
+    return sorted(p.stem for p in (PROMPTS_DIR / "voices").glob("*.md"))
+
+
+@lru_cache(maxsize=16)
+def persona_block(persona: str = DEFAULT_PERSONA) -> str:
+    """One narrator's voice: who they are, how they talk, and their punch shape."""
+    try:
+        return _body(f"voices/{persona}")
+    except PromptError:
+        raise PromptError(
+            f"unknown persona {persona!r}; available: {available_personas()}"
+        ) from None
+
+
+@lru_cache(maxsize=16)
+def voice_block(persona: str = DEFAULT_PERSONA) -> str:
+    """Everything injected into writing prompts as {{VOICE}}: craft, then one persona.
 
     Deliberately NOT injected into judging prompts: a judge carrying the persona rates its own
-    style highly, which collapses the tournament.
+    style highly, which collapses the tournament. Judges get VOICE="" and no craft block either.
+
+    Split into two files because 00_voice.md was two documents in one coat - the banned tells and
+    the definition of funny apply to every narrator, while "late twenties, tired, warm" applies to
+    exactly one. Keeping them fused meant every video had the same voice *and* the same ending
+    shape, which is both the funniness ceiling and the thing YouTube's Inauthentic Content policy
+    penalises. Composing here rather than in the stage prompts means all nine of those files are
+    unchanged and keep working.
     """
-    return _body("00_voice")
+    return f"{craft_block()}\n\n---\n\n{persona_block(persona)}"
 
 
 def render(name: str, **vars: object) -> str:

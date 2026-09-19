@@ -21,6 +21,7 @@ from typing import Any
 import requests
 
 from .config import (
+    LLM_MAX_OUTPUT_TOKENS,
     GEMINI_MODELS, GROQ_MODELS, OPENROUTER_MODEL, POLLINATIONS_TEXT_MODEL, Config, logger,
 )
 
@@ -92,7 +93,7 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) ->
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     top_p=0.95,
-                    max_output_tokens=8192,
+                    max_output_tokens=LLM_MAX_OUTPUT_TOKENS,
                     response_mime_type="application/json" if want_json else "text/plain",
                     safety_settings=safety,
                 ),
@@ -115,7 +116,7 @@ def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
-        "max_tokens": 8192,
+        "max_tokens": LLM_MAX_OUTPUT_TOKENS,
     }
     if want_json:
         body["response_format"] = {"type": "json_object"}
@@ -145,8 +146,14 @@ def _groq(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> s
             )
         except Exception as exc:  # noqa: BLE001
             last = exc
-            if "404" in str(exc) or "decommissioned" in str(exc).lower():
-                logger.warning("groq model %s unavailable", model)
+            # Advance to the next model rather than killing the whole rung. A 400 (unsupported
+            # response_format) or 413 (prompt + max_tokens over the TPM ceiling) is a property
+            # of *this model*, not of Groq - raising here took the provider down entirely and
+            # dropped the run onto a tier that cannot serve it.
+            msg = str(exc).lower()
+            if any(t in msg for t in ("404", "400", "413", "decommissioned",
+                                      "not supported", "request too large")):
+                logger.warning("groq model %s unavailable (%s)", model, str(exc)[:120])
                 continue
             raise
     raise LLMError(f"all groq models failed: {last}")
@@ -208,7 +215,13 @@ class LLM:
             self.providers.append(Provider("openrouter", _openrouter))
         if cfg.groq_key:
             self.providers.append(Provider("groq", _groq))
-        self.providers.append(Provider("pollinations", _pollinations))  # always last
+        if cfg.pollinations_token:
+            # Keyless Pollinations text is gone: probed 2026-09-12, gen.pollinations.ai returns
+            # 401 "A valid API key is required" on the *first* anonymous request, not after a
+            # handful. Keeping it in the ladder bought nothing and cost two 120s timeouts on
+            # every total-failure path. CLAUDE.md already says there is no working keyless text
+            # tier; this makes the ladder agree with it.
+            self.providers.append(Provider("pollinations", _pollinations))
         self.calls = 0
 
     def complete(self, prompt: str, *, temperature: float = 0.9, want_json: bool = True) -> str:

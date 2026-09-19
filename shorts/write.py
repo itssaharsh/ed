@@ -59,6 +59,11 @@ class Line:
     start: float = 0.0
 
 
+def _voice(persona: str | None) -> str:
+    """The {{VOICE}} block for a writing stage: craft + this run's persona."""
+    return prompts.voice_block(persona) if persona else prompts.voice_block()
+
+
 def pick_category(rng: random.Random) -> Category:
     return rng.choices(CATEGORIES, weights=[c.weight for c in CATEGORIES], k=1)[0]
 
@@ -80,10 +85,11 @@ def _judge_factory(llm: LLM, item_kind: str, context: str):
 
 # ── Stage 1-2: premises ─────────────────────────────────────────────────────
 
-def generate_premises(llm: LLM, category: Category, recent: list[str]) -> list[Premise]:
+def generate_premises(llm: LLM, category: Category, recent: list[str],
+                      persona: str | None = None) -> list[Premise]:
     recent_block = "\n".join(f"- {r}" for r in recent[:40]) or "- (nothing yet)"
     p = prompts.render(
-        "01_ideate",
+        "01_ideate", VOICE=_voice(persona),
         CATEGORY=category.id, CATEGORY_BRIEF=category.brief,
         RECENT_PREMISES=recent_block, N=N_PREMISES,
     )
@@ -139,9 +145,10 @@ def _clean_spoken(text: str) -> str:
     return re.sub(r"\s+", " ", t).strip()
 
 
-def draft_script(llm: LLM, premise: Premise) -> tuple[list[dict], str]:
+def draft_script(llm: LLM, premise: Premise,
+                 persona: str | None = None) -> tuple[list[dict], str]:
     p = prompts.render(
-        "03_script",
+        "03_script", VOICE=_voice(persona),
         PREMISE=premise.prompt_block(),
         TARGET_SECONDS=TARGET_SECONDS, TARGET_WORDS=TARGET_WORDS,
     )
@@ -151,6 +158,7 @@ def draft_script(llm: LLM, premise: Premise) -> tuple[list[dict], str]:
         raise LLMError(f"script draft returned {len(beats) if isinstance(beats, list) else 0} beats")
 
     cleaned: list[dict] = []
+    unknown: list[str] = []
     for b in beats:
         if not isinstance(b, dict):
             continue
@@ -159,8 +167,22 @@ def draft_script(llm: LLM, premise: Premise) -> tuple[list[dict], str]:
         if not text:
             continue
         if role not in BEAT_ORDER:
+            # Record the violation rather than silently absorbing it. Coercing an unrecognised
+            # role to "escalate" turns any structural mistake into a well-formed monologue,
+            # which is indistinguishable from success downstream - and it is what would quietly
+            # defeat a format registry: a model that ignored its format spec would still emit a
+            # valid-looking script in the one shape the pipeline already knows.
+            unknown.append(role)
             role = "escalate"
         cleaned.append({"role": role, "text": text})
+
+    if unknown:
+        # Loud, but not fatal while `monologue` is the only beat vocabulary - every role here is
+        # still a real beat, just mislabelled. When formats.py lands this becomes a re-ask and
+        # then a hard failure, because then the label carries the structure.
+        logger.warning("stage 3: model returned %d unrecognised beat role(s) %s; coerced to "
+                       "'escalate'. Expected one of %s",
+                       len(unknown), sorted(set(unknown)), list(BEAT_ORDER))
 
     if not any(b["role"] == "punch" for b in cleaned):
         cleaned[-1]["role"] = "punch"          # the last line is the punch by definition
@@ -171,12 +193,14 @@ def draft_script(llm: LLM, premise: Premise) -> tuple[list[dict], str]:
 
 # ── Stage 4: punch-up ───────────────────────────────────────────────────────
 
-def punch_up(llm: LLM, beats: list[dict], the_joke: str, rng: random.Random) -> list[dict]:
+def punch_up(llm: LLM, beats: list[dict], the_joke: str, rng: random.Random,
+             persona: str | None = None) -> list[dict]:
     """Generate alternative punchlines and tournament them against the incumbent."""
     punch_idx = max(i for i, b in enumerate(beats) if b["role"] == "punch")
     script_text = "\n".join(f"[{b['role']}] {b['text']}" for b in beats)
 
-    p = prompts.render("04_punchup", SCRIPT=script_text, THE_JOKE=the_joke, N=N_PUNCHLINES)
+    p = prompts.render("04_punchup", SCRIPT=script_text, THE_JOKE=the_joke,
+                       N=N_PUNCHLINES, VOICE=_voice(persona))
     try:
         data = llm.complete_json(p, temperature=1.0)
     except LLMError as exc:

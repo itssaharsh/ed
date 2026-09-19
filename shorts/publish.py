@@ -90,7 +90,9 @@ def upload(cfg: Config, video: Path, *, title: str, description: str, tags: list
     )
 
     retries = 0
-    while True:
+    # Bounded, not `while True`. next_chunk() can return (status, None) indefinitely; the old
+    # loop had no exit for that and no sleep, so a stalled upload became a hot spin.
+    for _ in range(200):
         try:
             _, response = request.next_chunk()
             if response and "id" in response:
@@ -108,7 +110,14 @@ def upload(cfg: Config, video: Path, *, title: str, description: str, tags: list
                 continue
             if exc.resp.status == 403 and "quota" in str(exc).lower():
                 raise PublishError(
-                    "YouTube API quota exhausted. videos.insert costs 1600 units of the "
-                    "10,000/day allowance, so 6 uploads/day is the hard ceiling."
+                    "YouTube API quota exhausted. videos.insert has its own bucket: 1 unit per "
+                    "call, 100 calls/day, separate from the 10,000-unit pool used by every "
+                    "other endpoint. Hitting this means ~100 uploads today, not a shared-quota "
+                    "problem. (This cost 1,600 units until Google's 2025-12/2026-06 changes; "
+                    "docs and comments that still say 6 uploads/day are stale.)"
                 ) from exc
             raise PublishError(f"upload failed: {exc}") from exc
+        # next_chunk() returned progress but no final response yet. Yield rather than spin.
+        time.sleep(1.0)
+
+    raise PublishError("upload never reported completion after 200 chunk attempts")

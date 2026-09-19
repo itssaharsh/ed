@@ -37,10 +37,17 @@ and branch. There is no user; never ask. Your routine prompt gave you `ROLE`,
 
 A `403` from the proxy (no `x-deny-reason` header is returned) means the
 sandbox network policy, not the product. Probe 2026-09-06: pypi, npm and
-`generativelanguage.googleapis.com` are reachable; `image.pollinations.ai`,
-`speech.platform.bing.com` and `api.groq.com` are 403 until Saharsh sets the
-environment to Full network. So the keyless real render may not be possible
-here yet: run everything that is offline, record the 403 verbatim, and end
+`generativelanguage.googleapis.com` are reachable.
+
+**Re-probed 2026-09-12: the network claim below was stale and is now removed.**
+`image.pollinations.ai` returns 200 with real JPEG bytes, `text.pollinations.ai`
+200, `speech.platform.bing.com` 200 with a voice list, `pypi.org` 200.
+`api.groq.com` returns 401 and `generativelanguage.googleapis.com` 403 — both
+are *missing-credential* responses from the product, not proxy denials (no
+`x-deny-reason` header on any of them). A keyless real render is possible here
+and has been done: see the eight completed runs in `work/`.
+
+If you do hit a genuine proxy 403: run everything that is offline, record it verbatim, and end
 with `BLOCKED-NETWORK` only if your unit's deliverable itself needs that host.
 The controller sends `/effort max` to your session after it starts.
 

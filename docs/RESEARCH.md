@@ -58,7 +58,18 @@ what edge-tts can do, and it is why the delivery is flat.
 |---|---|---|---|
 | **Groq `canopylabs/orpheus-v1-english`** | **10 RPM / 100 RPD free.** | **Bracketed vocal direction** (`[deadpan]`, `[sarcastic]`, `[whisper]`, `[dramatic]`) + inline non-verbals (`<laugh>`, `<sigh>`, `<giggle>`). 6 voices: autumn, diana, hannah, austin, daniel, troy. **200-char cap per request.** | **PRIMARY** |
 | Gemini TTS (`gemini-2.5-flash-preview-tts`) | 3 RPM / **15 RPD** — very tight. | Natural-language style direction. Send the whole script in 1 call → 6 calls/day fits. | FALLBACK 1 |
-| edge-tts | Free, keyless, unlimited. | **Custom SSML was removed** by Microsoft. Only `rate`/`volume`/`pitch` on a single `<prosody>`. No pauses, no emphasis, no non-verbals. GPL-3.0 client. | FALLBACK 2 (safety net) |
+| edge-tts | Free, keyless, unlimited — **but see the warning below.** | **Custom SSML was removed** by Microsoft. Only `rate`/`volume`/`pitch` on a single `<prosody>`. No pauses, no emphasis, no non-verbals. GPL-3.0 client. | FALLBACK 2 (safety net) |
+
+> ⚠️ **edge-tts is not a reliable safety net in CI.** Microsoft gates the Read Aloud endpoint
+> behind a short-lived `Sec-MS-GEC` anti-abuse token and filters datacenter IP ranges. From a
+> cloud runner — every GitHub Actions job — the request can succeed and return a **valid,
+> correctly-sized, entirely silent** audio payload. A byte-length check does not catch it, and
+> a silent video used to pass the whole quality gate (see CLAUDE.md). `voice.py` now measures
+> peak dBFS per chunk and `qc.py` hard-fails below `MIN_VOICE_PEAK_DBFS`.
+>
+> This inverts the usual reading of this table: **in CI, Orpheus is the safe path and edge-tts
+> is the risky one.** Keep `edge-tts` pinned with `>=`, never `==` — only current releases
+> track Microsoft's token algorithm.
 
 The Orpheus **200-character cap is a feature, not a limitation**: it forces per-sentence synthesis,
 which is exactly what lets us place silences between comedy beats with frame accuracy instead of
@@ -99,9 +110,23 @@ Kimi K2 is the best humour writer reachable free.
 | Service | Model | Free limits |
 |---|---|---|
 | Google Gemini | `gemini-2.5-flash` | 10 RPM / 250k TPM / **500 RPD** |
-| OpenRouter | `moonshotai/kimi-k2.6:free` | Zero token cost, rate-limited endpoint |
-| Groq | llama / gpt-oss / kimi variants | generous free RPD |
-| Pollinations text | `openai-fast` (GPT-OSS 20B) | `PROBED` keyless, 1 req/15s anonymous |
+| OpenRouter | `nvidia/nemotron-3-ultra-550b-a55b:free` | Zero token cost, rate-limited endpoint |
+| Groq | `openai/gpt-oss-120b` / `-20b` / `qwen/qwen3.6-27b` | 30 RPM / 1K RPD / 8K TPM / 200K TPD |
+| Pollinations text | ~~`openai-fast`~~ | `PROBED` **dead keyless** — 401 on the first request |
+
+> **Re-probed 2026-09-12 and three of the four rows above had to change.** This is the churn the
+> header warns about, and it had already happened silently:
+>
+> * **Kimi's `:free` endpoint is gone.** `moonshotai/kimi-k2.6` still exists on OpenRouter but is
+>   paid-only, so §4's "Kimi K2 is the best humour writer reachable free" no longer holds.
+> * **`llama-3.3-70b-versatile` and `llama-3.1-8b-instant` are off Groq's free tier**, replaced by
+>   the gpt-oss family. Note these are *reasoning* models: reasoning tokens come out of the same
+>   `max_tokens` budget, so set `reasoning_effort: low` if output comes back truncated.
+> * **Keyless Pollinations text 401s on request #1**, not "after a handful". The rung is removed
+>   from the ladder unless a token is present.
+> * Groq free TPM is **8,000**, and the limiter counts `prompt + max_tokens`. The old
+>   `max_tokens: 8192` therefore 413'd on every Groq call regardless of model id. Hence
+>   `config.LLM_MAX_OUTPUT_TOKENS = 4096`.
 
 `google-generativeai` is **dead** (support ended 2025-08-31). Use `google-genai`.
 The old repo's hardcoded `gemini-1.5-flash` / `gemini-1.5-pro` ids **404** — this is what caused
@@ -135,8 +160,12 @@ real person. Since May 2026 YouTube auto-detects and labels photoreal synthetic 
 → **Choose a stylised look, not a photoreal one.** It dodges the label and the auto-detector, and
 it reads as an intentional art style rather than as failed realism.
 
-**Upload quota:** YouTube Data API = 10,000 units/day; `videos.insert` = 1600 units → **6 uploads/day
-hard cap** per project. Confirmed as the reason the old cron targeted 6/day.
+**Upload quota:** ~~10,000 units/day; `videos.insert` = 1600 units → 6 uploads/day hard cap.~~
+**Superseded 2026-09-12.** Google cut `videos.insert` to ~100 units on 2025-12-04 and moved it to
+its own bucket on 2026-06-01. It is now **1 unit per call with a dedicated 100 calls/day limit**,
+separate from the 10,000-unit pool. Verified against `determine_quota_cost`. The practical ceiling
+went from 6/day to 100/day, and upload stopped being the binding constraint — which is why the
+cron moved from `20 */4 * * *` to `20 */2 * * *`.
 
 **Duplicate-content risk:** the old `main.py` uploads the *identical file* to two channels. That is
 a genuine risk under the mass-produced / repetitive-content policy. Either render a per-channel
@@ -162,6 +191,21 @@ render briefs serially (`batch.py`). Parallelism was ~5x slower.
 **The unsolved quality problem: style adherence.** `sana` largely ignores the style contract. In
 one 7-shot video the frames ranged from photoreal to flat cartoon, so the video does not read as
 one production. Two things *do* work on this tier and are already in the code:
+
+> **Measured 2026-09-13, and partly solved.** Frames were pulled from all eight renders in
+> `work/` and compared numerically. Two findings:
+>
+> 1. **The drift axis is saturation, not luminance.** Luminance spread stayed within 26–79 points
+>    regardless of how incoherent a video looked; mean saturation separated cleanly — coherent
+>    runs clustered at ~0.13 spread, incoherent ones at 0.39–0.58. Now measured by
+>    `images.coherence()` and warned on at `MAX_SATURATION_RANGE = 0.35`.
+> 2. **Subject adherence is the bigger problem, and it was invisible.** In one 7-shot render only
+>    *one* image showed its requested subject; the other six were plausible, well-exposed,
+>    `is_usable`-passing pictures of something else entirely. `images.depicts_subject()` now
+>    checks this with Gemini's free vision tier and re-rolls on a miss.
+>
+> Both are expected to improve sharply once `CLOUDFLARE_*` is set and flux-1-schnell replaces
+> `sana`, which is the provider that ignores the contract in the first place.
 
 - **Subject-first prompt ordering.** Leading with the long style paragraph made the model drop the
   subject entirely — a request for "a man at an office fridge" returned a portrait of a stranger.

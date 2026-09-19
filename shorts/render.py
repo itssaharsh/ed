@@ -173,5 +173,31 @@ def measure_loudness(path: Path) -> float | None:
         capture_output=True, text=True, timeout=300,
     )
     import re
-    m = re.search(r"Input Integrated:\s*(-?[\d.]+)\s*LUFS", proc.stderr)
+    # `-?[\d.]+` does not match "inf". ffmpeg prints "Input Integrated: -inf LUFS" for pure
+    # silence, so the old pattern returned None there - and qc.py guards its loudness check with
+    # `if lufs is not None`, meaning a *silent* video skipped the check entirely and published.
+    # Matching -inf explicitly makes None mean "measurement failed", which is safe to gate on.
+    m = re.search(r"Input Integrated:\s*(-?(?:inf|[\d.]+))\s*LUFS", proc.stderr)
+    if not m:
+        return None
+    raw = m.group(1)
+    if raw.endswith("inf"):
+        return -70.0 if raw.startswith("-") else None
+    return float(raw)
+
+
+def measure_peak(path: Path) -> float | None:
+    """Peak amplitude in dBFS, for the silence gate.
+
+    measure_loudness() is near-useless as a *quality* signal because it runs on the finalised
+    file, after `loudnorm=I=-14` has already been baked in - it reads about -14 for anything
+    with sound in it. Peak is the honest question: is there any signal here at all.
+    """
+    proc = subprocess.run(
+        [ffmpeg_bin(), "-hide_banner", "-i", str(path), "-af", "volumedetect",
+         "-f", "null", "-"],
+        capture_output=True, text=True, timeout=300,
+    )
+    import re
+    m = re.search(r"max_volume:\s*(-?[\d.]+) dB", proc.stderr)
     return float(m.group(1)) if m else None

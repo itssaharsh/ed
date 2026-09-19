@@ -105,7 +105,7 @@ visibly — see [docs/SETUP.md](docs/SETUP.md).
 | Gemini `gemini-2.5-flash` | 500 req/day | ~84 |
 | Groq Orpheus TTS | 100 req/day | ~30 |
 | Cloudflare FLUX-schnell | 10,000 neurons/day | ~4,140 |
-| YouTube `videos.insert` | 10,000 units/day | 9,600 ← **the real ceiling: 6 uploads/day** |
+| YouTube `videos.insert` | **100 calls/day** (own bucket, 1 unit each) | 12 — not the ceiling any more |
 
 **Throughput depends almost entirely on the image provider.** Measured on this machine:
 
