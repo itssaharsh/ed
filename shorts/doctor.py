@@ -152,6 +152,54 @@ def check_upload(cfg: Config) -> tuple[str, str, str]:
         return _row(BAD, "upload", f"{str(exc)[:80]}{hint}")
 
 
+_NOT_TEXT = ("embed", "tts", "image", "imagen", "veo", "audio", "live", "whisper", "orpheus",
+             "guard", "safeguard", "computer", "robotic", "aqa", "vision-only", "lyria")
+
+
+def _is_text_model(name: str) -> bool:
+    n = name.lower()
+    return not any(t in n for t in _NOT_TEXT)
+
+
+def _probe_status(msg: str) -> str:
+    m = msg.lower()
+    if "404" in m or "not_found" in m or "does not exist" in m:
+        return "404 not available"
+    if "429" in m or "resource_exhausted" in m or "rate limit" in m:
+        if "limit: 0" in m or "limit 0" in m:
+            return "429 no free quota (limit 0)"
+        if "perday" in m.replace("_", "").replace(" ", "") or "per day" in m:
+            return "429 daily quota spent"
+        return "429 rate limited (per-minute)"
+    if "400" in m or "invalid_argument" in m:
+        return "400 " + msg[:24].replace("\n", " ")
+    return "error " + msg[:24].replace("\n", " ")
+
+
+def _probe_gemini(client, model: str) -> str:
+    """One minimal call: no JSON mode and no thinking config, so every family accepts it."""
+    try:
+        from google.genai import types
+        r = client.models.generate_content(
+            model=model, contents="Reply with the single word OK.",
+            config=types.GenerateContentConfig(temperature=0, max_output_tokens=512))
+        return "OK" if (r.text or "").strip() else "OK (empty reply)"
+    except Exception as exc:  # noqa: BLE001
+        return _probe_status(str(exc))
+
+
+def _probe_groq(cfg: Config, model: str) -> str:
+    try:
+        r = requests.post("https://api.groq.com/openai/v1/chat/completions",
+                          headers={"Authorization": f"Bearer {cfg.groq_key}"},
+                          json={"model": model, "max_tokens": 64,
+                                "messages": [{"role": "user", "content": "Reply OK."}]},
+                          timeout=60)
+        return "OK" if r.status_code == 200 else _probe_status(f"{r.status_code} {r.text}")
+    except Exception as exc:  # noqa: BLE001
+        return _probe_status(str(exc))
+
+
 def list_models(cfg: Config) -> None:
     """Print the model ids each keyed provider actually serves. Costs no generation quota.
 
@@ -169,10 +217,11 @@ def list_models(cfg: Config) -> None:
                 acts = getattr(m, "supported_actions", None) or []
                 if "generateContent" in acts or not acts:
                     names.append(m.name.split("/")[-1])
-            flash = sorted(n for n in names if "flash" in n or "gemma" in n)
-            print(f"  gemini ({len(names)} total, flash/gemma shown):")
-            for n in flash:
-                print(f"    {n}")
+            text_models = sorted(n for n in names if _is_text_model(n))
+            print(f"  gemini: {len(names)} models listed, {len(text_models)} text candidates. "
+                  f"Probing each with one call (quotas are per model):")
+            for n in text_models:
+                print(f"    {_probe_gemini(client, n):<34} {n}")
         except Exception as exc:  # noqa: BLE001
             print(f"  gemini: could not list models: {str(exc)[:120]}")
     if cfg.groq_key:
@@ -180,9 +229,10 @@ def list_models(cfg: Config) -> None:
             r = requests.get("https://api.groq.com/openai/v1/models",
                              headers={"Authorization": f"Bearer {cfg.groq_key}"}, timeout=30)
             ids = sorted(m["id"] for m in r.json().get("data", []))
-            print(f"  groq ({len(ids)}):")
-            for n in ids:
-                print(f"    {n}")
+            chat = [n for n in ids if _is_text_model(n)]
+            print(f"  groq: {len(ids)} models listed, {len(chat)} chat candidates. Probing:")
+            for n in chat:
+                print(f"    {_probe_groq(cfg, n):<34} {n}")
         except Exception as exc:  # noqa: BLE001
             print(f"  groq: could not list models: {str(exc)[:120]}")
 
