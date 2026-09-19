@@ -252,6 +252,21 @@ def subject_of(prompt: str) -> str:
     return _SUBJECT_RE.sub("", head).strip() or head
 
 
+def _mime_of(data: bytes) -> str:
+    """Sniff the real image type. Providers disagree: Pollinations sends JPEG, Cloudflare PNG.
+
+    Declaring the wrong type is not harmless here - if the vision model rejects the mismatch, the
+    check fails open and quietly never runs at all.
+    """
+    if data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return "image/png"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return "image/jpeg"
+
+
 def _parse_verdict(text: str) -> tuple[bool | None, str]:
     """Read a yes/no verdict out of the model's reply. Unrecognised means 'do not know'."""
     t = (text or "").strip().lower()
@@ -290,7 +305,7 @@ def depicts_subject(cfg: Config, data: bytes, prompt: str) -> tuple[bool | None,
         resp = client.models.generate_content(
             model=GEMINI_MODELS[0],
             contents=[
-                types.Part.from_bytes(data=data, mime_type="image/png"),
+                types.Part.from_bytes(data=data, mime_type=_mime_of(data)),
                 "Answer with one word, yes or no, then at most eight words of reason.\n"
                 f"Does this image clearly show: {subject}?",
             ],

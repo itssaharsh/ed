@@ -21,6 +21,7 @@ from typing import Any
 import requests
 
 from .config import (
+    GEMINI_MAX_OUTPUT_TOKENS, GEMINI_THINKING_BUDGET,
     LLM_MAX_OUTPUT_TOKENS,
     GEMINI_MODELS, GROQ_MODELS, OPENROUTER_MODEL, POLLINATIONS_TEXT_MODEL, Config, logger,
 )
@@ -70,6 +71,33 @@ def extract_json(raw: str) -> Any:
 
 # ── Providers ───────────────────────────────────────────────────────────────
 
+class TruncatedError(LLMError):
+    """The provider stopped at its token ceiling. Not a formatting problem - retrying the same
+    provider with a "please output valid JSON" hint cannot fix it."""
+
+
+def _raise_if_truncated(model: str, resp: Any) -> None:
+    """Name a max-tokens stop as what it is.
+
+    Without this, a truncated JSON response surfaced as "no parseable JSON in response" with a
+    300-character preview that cannot show where the text ended - which is exactly what the first
+    live CI run reported, three times, before dying.
+    """
+    try:
+        cand = resp.candidates[0]
+        reason = str(getattr(cand, "finish_reason", "") or "")
+    except (AttributeError, IndexError, TypeError):
+        return
+    if "MAX_TOKENS" in reason:
+        um = getattr(resp, "usage_metadata", None)
+        thoughts = getattr(um, "thoughts_token_count", None)
+        out = getattr(um, "candidates_token_count", None)
+        raise TruncatedError(
+            f"{model} hit max_output_tokens (thinking={thoughts}, answer={out}); "
+            f"raise GEMINI_MAX_OUTPUT_TOKENS or lower GEMINI_THINKING_BUDGET"
+        )
+
+
 def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
     from google import genai
     from google.genai import types
@@ -93,11 +121,13 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) ->
                 config=types.GenerateContentConfig(
                     temperature=temperature,
                     top_p=0.95,
-                    max_output_tokens=LLM_MAX_OUTPUT_TOKENS,
+                    max_output_tokens=GEMINI_MAX_OUTPUT_TOKENS,
+                    thinking_config=types.ThinkingConfig(thinking_budget=GEMINI_THINKING_BUDGET),
                     response_mime_type="application/json" if want_json else "text/plain",
                     safety_settings=safety,
                 ),
             )
+            _raise_if_truncated(model, resp)
             if resp.text:
                 return resp.text
             last = LLMError(f"{model} returned no text")
@@ -120,12 +150,18 @@ def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
     }
     if want_json:
         body["response_format"] = {"type": "json_object"}
+    if "gpt-oss" in model:
+        # Reasoning model, same trap as Gemini thinking: reasoning tokens come out of max_tokens.
+        body["reasoning_effort"] = "low"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     headers.update(extra_headers or {})
     r = requests.post(url, headers=headers, json=body, timeout=120)
     if r.status_code != 200:
         raise LLMError(f"{url} -> {r.status_code}: {r.text[:200]}")
-    return r.json()["choices"][0]["message"]["content"] or ""
+    choice = r.json()["choices"][0]
+    if choice.get("finish_reason") == "length":
+        raise TruncatedError(f"{model} hit max_tokens ({LLM_MAX_OUTPUT_TOKENS}) before finishing")
+    return choice["message"]["content"] or ""
 
 
 def _openrouter(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
@@ -223,8 +259,12 @@ class LLM:
             # tier; this makes the ladder agree with it.
             self.providers.append(Provider("pollinations", _pollinations))
         self.calls = 0
+        self.last_provider: str | None = None
 
-    def complete(self, prompt: str, *, temperature: float = 0.9, want_json: bool = True) -> str:
+    def complete(self, prompt: str, *, temperature: float = 0.9, want_json: bool = True,
+                 exclude: frozenset[str] = frozenset()) -> str:
+        """First healthy provider not in `exclude`. Records which one answered in last_provider."""
+        self.last_provider = None
         if not any(p.healthy for p in self.providers):
             raise LLMError(
                 "every LLM provider is exhausted or unreachable: "
@@ -233,13 +273,14 @@ class LLM:
             )
         errors: list[str] = []
         for p in self.providers:
-            if not p.healthy:
+            if not p.healthy or p.name in exclude:
                 continue
             for attempt in (1, 2):
                 try:
                     self.calls += 1
                     out = p.call(self.cfg, prompt, temperature=temperature, want_json=want_json)
                     if out and out.strip():
+                        self.last_provider = p.name
                         return out
                     errors.append(f"{p.name}: empty")
                 except Exception as exc:  # noqa: BLE001
@@ -259,15 +300,27 @@ class LLM:
     def complete_json(self, prompt: str, *, temperature: float = 0.9, retries: int = 2) -> Any:
         """Complete and parse JSON. Raises LLMError rather than returning a placeholder."""
         last: Exception | None = None
+        # Providers that already returned something unusable for *this* prompt. The retry goes to
+        # a different provider rather than straight back to the same one: the first live CI run
+        # sent all three attempts to Gemini, which truncated identically each time, while Groq
+        # sat configured and idle. A parse failure never demotes a provider globally - the same
+        # model may be fine on the next, shorter prompt - it only steers this prompt's retries.
+        tried_bad: set[str] = set()
         for attempt in range(retries + 1):
             p = prompt if attempt == 0 else (
                 prompt + "\n\nOutput valid JSON only. No prose, no markdown fence. "
                 "The first character must be { or [."
             )
+            healthy = {pr.name for pr in self.providers if pr.healthy}
+            exclude = frozenset(tried_bad) if healthy - tried_bad else frozenset()
             try:
-                return extract_json(self.complete(p, temperature=temperature, want_json=True))
+                return extract_json(self.complete(p, temperature=temperature, want_json=True,
+                                                  exclude=exclude))
             except LLMError as exc:
                 last = exc
-                logger.warning("json parse failed (attempt %d/%d): %s", attempt + 1, retries + 1, exc)
+                if self.last_provider:
+                    tried_bad.add(self.last_provider)
+                logger.warning("json parse failed (attempt %d/%d, %s): %s", attempt + 1,
+                               retries + 1, self.last_provider or "?", exc)
                 time.sleep(1.5)
         raise LLMError(f"could not obtain valid JSON after {retries + 1} attempts: {last}")

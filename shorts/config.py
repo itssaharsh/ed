@@ -162,6 +162,15 @@ POLLINATIONS_TEXT_MODEL = "openai-fast"
 # largest output the pipeline ever asks for (12 premises x 7 fields) is ~2.5K.
 LLM_MAX_OUTPUT_TOKENS = 4096
 
+# Gemini gets its own, larger budget - and the reason is the first live CI run (2026-09-19).
+# gemini-2.5-flash is a *thinking* model: its reasoning tokens are drawn from max_output_tokens.
+# Applying the Groq-motivated 4096 cap to Gemini let thinking consume the budget, and the JSON
+# premise list was truncated mid-string on all three attempts - the run died at stage 1 on a
+# 200 OK. Gemini's free tier is not TPM-shaped like Groq's (250K TPM), so a large ceiling costs
+# nothing; the thinking budget is capped separately so it can never again starve the answer.
+GEMINI_MAX_OUTPUT_TOKENS = 16384
+GEMINI_THINKING_BUDGET = 2048
+
 # ── Publishing ──────────────────────────────────────────────────────────────
 YOUTUBE_UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 # Public by default. This was "private", and the scheduled workflow relied on that default

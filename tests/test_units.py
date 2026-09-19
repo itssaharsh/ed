@@ -215,12 +215,106 @@ def test_subject_check() -> None:
     check("a non-answer is unknown, not a rejection", _parse_verdict("I think maybe")[0] is None)
     check("empty is unknown, not a rejection", _parse_verdict("")[0] is None)
 
+    from shorts.images import _mime_of
+    check("sniffs JPEG (what Pollinations sends)", _mime_of(b"\xff\xd8\xff\xe1xxxx") == "image/jpeg")
+    check("sniffs PNG", _mime_of(b"\x89PNG\r\n\x1a\nxxxx") == "image/png")
+    check("sniffs WEBP", _mime_of(b"RIFF\x00\x00\x00\x00WEBPxxxx") == "image/webp")
+
     # The keyless path must be untouched: no key means no check, and no check means keep the
     # image. A vision outage must never halt image generation - unlike the QC gate, which fails
     # closed, this one fails open by design.
     cfg = dataclasses.replace(Config(), gemini_key=None)
     verdict, _ = depicts_subject(cfg, b"not-an-image", "wide shot of a fridge")
     check("no key means no check (fails open)", verdict is None)
+
+
+def test_llm_resilience() -> None:
+    """Reproduces the first live CI failure (2026-09-19) and proves it cannot recur.
+
+    Gemini returned 200 OK with JSON truncated mid-string - its thinking tokens ate the output
+    budget - and all three retries went straight back to Gemini while Groq sat idle.
+    """
+    import dataclasses, types as _t
+    import requests as _rq
+    from shorts import llm as L
+    from shorts.config import Config
+    print("\nllm resilience")
+
+    truncated = '{\n  "premises": [\n    {\n      "id": 1,\n      "situation": "People in a coffee'
+    good = '{"premises": [{"id": 1, "situation": "a", "turn": "b"}]}'
+
+    def make(*providers):
+        llm = L.LLM(dataclasses.replace(Config(), gemini_key=None, groq_key=None,
+                                        openrouter_key=None, pollinations_token=None))
+        llm.providers = [L.Provider(n, fn) for n, fn in providers]
+        return llm
+
+    orig_sleep = L.time.sleep
+    L.time.sleep = lambda *_: None
+    try:
+        # 1. the exact CI failure: primary returns truncated JSON every time
+        seen = []
+        def gem(cfg, prompt, **k): seen.append("gemini"); return truncated
+        def groq(cfg, prompt, **k): seen.append("groq"); return good
+        out = make(("gemini", gem), ("groq", groq)).complete_json("p")
+        check("a truncating primary no longer kills the run", out["premises"][0]["turn"] == "b")
+        check("the retry moved to the next provider", seen == ["gemini", "groq"], str(seen))
+
+        # 2. an explicit truncation raised inside a provider falls through in ONE call
+        seen.clear()
+        def gem_trunc(cfg, prompt, **k):
+            seen.append("gemini"); raise L.TruncatedError("hit max_output_tokens")
+        out = make(("gemini", gem_trunc), ("groq", groq)).complete_json("p")
+        check("a max-tokens stop falls through to the next provider", seen == ["gemini", "groq"],
+              str(seen))
+
+        # 3. with only one provider, retries still happen on it (nothing else to try)
+        seen.clear()
+        try:
+            make(("gemini", gem)).complete_json("p")
+            check("single bad provider eventually raises", False)
+        except L.LLMError:
+            check("single bad provider still gets all its retries", seen == ["gemini"] * 3,
+                  str(seen))
+
+        # 4. a parse failure does not globally demote - the provider stays healthy
+        llm = make(("gemini", gem), ("groq", groq)); llm.complete_json("p")
+        check("a parse failure does not demote the provider",
+              all(pr.healthy for pr in llm.providers))
+    finally:
+        L.time.sleep = orig_sleep
+
+    # 5. Gemini finish_reason MAX_TOKENS is named, not reported as "no parseable JSON"
+    fake = _t.SimpleNamespace(
+        candidates=[_t.SimpleNamespace(finish_reason="FinishReason.MAX_TOKENS")],
+        usage_metadata=_t.SimpleNamespace(thoughts_token_count=3900, candidates_token_count=196))
+    try:
+        L._raise_if_truncated("gemini-2.5-flash", fake)
+        check("MAX_TOKENS is detected", False)
+    except L.TruncatedError as exc:
+        check("MAX_TOKENS is detected and reports the thinking share", "thinking=3900" in str(exc))
+    ok = _t.SimpleNamespace(candidates=[_t.SimpleNamespace(finish_reason="FinishReason.STOP")])
+    try:
+        L._raise_if_truncated("gemini-2.5-flash", ok); check("a normal stop passes", True)
+    except L.TruncatedError:
+        check("a normal stop passes", False)
+
+    # 6. OpenAI-compatible `finish_reason: length` is truncation; gpt-oss gets bounded reasoning
+    sent = {}
+    class R:
+        status_code = 200
+        def json(self): return {"choices": [{"finish_reason": "length",
+                                             "message": {"content": truncated}}]}
+    orig_post = L.requests.post
+    L.requests.post = lambda url, headers=None, json=None, timeout=None: (sent.update(json), R())[1]
+    try:
+        L._openai_compatible("u", "k", "openai/gpt-oss-120b", "p", temperature=0.5, want_json=True)
+        check("length stop is detected", False)
+    except L.TruncatedError:
+        check("length stop is detected as truncation", True)
+    finally:
+        L.requests.post = orig_post
+    check("gpt-oss requests bounded reasoning", sent.get("reasoning_effort") == "low")
 
 
 def test_tournament() -> None:
@@ -424,7 +518,8 @@ def test_gate() -> None:
 
 def main() -> int:
     for fn in (test_json_extraction, test_prompts, test_personas,
-               test_caption_cards, test_coherence, test_subject_check, test_tournament, test_dedup,
+               test_caption_cards, test_coherence, test_subject_check,
+               test_llm_resilience, test_tournament, test_dedup,
                test_voice_timing, test_script_cleaning, test_sparse_shot_timing,
                test_briefs_valid, test_image_breaker, test_gate):
         fn()
