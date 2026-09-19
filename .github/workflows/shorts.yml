@@ -26,6 +26,10 @@ on:
         description: 'Render a hand-authored brief instead of generating (e.g. briefs/kettle_twice.json)'
         type: string
         default: ''
+      doctor:
+        description: 'Only run the provider preflight (lists live model ids; spends no generation quota)'
+        type: boolean
+        default: false
 
 concurrency:
   # Never let two runs race on the premise store - they would generate the same premise
@@ -78,6 +82,7 @@ jobs:
           POLLINATIONS_TOKEN: ${{ secrets.POLLINATIONS_TOKEN }}
           YOUTUBE_CREDENTIALS_PATH: credentials.json
         run: |
+          if [ "${{ inputs.doctor }}" = "true" ]; then python run.py --doctor || true; exit 0; fi
           python run.py \
             ${{ inputs.dry_run && '--dry-run' || '' }} \
             ${{ inputs.brief && format('--brief {0}', inputs.brief) || '' }} \

@@ -152,6 +152,40 @@ def check_upload(cfg: Config) -> tuple[str, str, str]:
         return _row(BAD, "upload", f"{str(exc)[:80]}{hint}")
 
 
+def list_models(cfg: Config) -> None:
+    """Print the model ids each keyed provider actually serves. Costs no generation quota.
+
+    Documentation has been wrong twice for this repo: qwen/qwen3.6-27b is on Groq's rate-limit
+    page but 404s on the API, and gemini-2.5-flash-lite is on Google's model page but 404s for
+    this key. config.py's model ids should come from this list, not from docs.
+    """
+    print("\nmodels this machine's keys can reach\n")
+    if cfg.gemini_key:
+        try:
+            from google import genai
+            names = []
+            for m in genai.Client(api_key=cfg.gemini_key).models.list():
+                acts = getattr(m, "supported_actions", None) or []
+                if "generateContent" in acts or not acts:
+                    names.append(m.name.split("/")[-1])
+            flash = sorted(n for n in names if "flash" in n or "gemma" in n)
+            print(f"  gemini ({len(names)} total, flash/gemma shown):")
+            for n in flash:
+                print(f"    {n}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  gemini: could not list models: {str(exc)[:120]}")
+    if cfg.groq_key:
+        try:
+            r = requests.get("https://api.groq.com/openai/v1/models",
+                             headers={"Authorization": f"Bearer {cfg.groq_key}"}, timeout=30)
+            ids = sorted(m["id"] for m in r.json().get("data", []))
+            print(f"  groq ({len(ids)}):")
+            for n in ids:
+                print(f"    {n}")
+        except Exception as exc:  # noqa: BLE001
+            print(f"  groq: could not list models: {str(exc)[:120]}")
+
+
 def check_memory(cfg: Config) -> tuple[str, str, str]:
     from .store import Store
     s = Store(cfg.store_path)
@@ -168,6 +202,7 @@ def run(cfg: Config, *, brief: bool = False) -> int:
     all (run.py exempts it, and qc.run_gate passes with a warning when llm is None). Reporting
     "cannot run" there is simply wrong, and --doctor is the first thing anyone checks.
     """
+    list_models(cfg)
     print("\nchecking providers\n")
     rows = [
         check_llm(cfg),
