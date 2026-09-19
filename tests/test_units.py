@@ -54,7 +54,7 @@ def test_prompts() -> None:
         "03_script": dict(PREMISE="p", TARGET_SECONDS=40, TARGET_WORDS=105),
         "04_punchup": dict(SCRIPT="s", THE_JOKE="j", N=6),
         "05_delivery": dict(BEATS="b", VOICE_NAME="austin"),
-        "06_shotlist": dict(LINES="l", STYLE_NAME="flat_absurd", STYLE_CONTRACT="c",
+        "06_shotlist": dict(LINES="l", STYLE_NAME="flat_absurd", STYLE_CONTRACT="c", REPAIR="",
                             TOTAL_SECONDS=40, VOICE=""),
         "08_qc": dict(SCRIPT="s", BASELINE="b", DURATION=40, SHOT_COUNT=8, VOICE=""),
         "09_metadata": dict(SCRIPT="s", PREMISE="p", CATEGORY_TAGS="#t", VOICE=""),
@@ -317,6 +317,34 @@ def test_llm_resilience() -> None:
     check("gpt-oss requests bounded reasoning", sent.get("reasoning_effort") == "low")
 
 
+def test_shot_people() -> None:
+    """The first real render was seven portraits of one man; these guards prevent a repeat."""
+    from shorts.visuals import features_person, insert_shortfall, _attach_character
+    print("\nshot list: people vs objects")
+    char = "mid\u201130s slender man with short brown hair wearing a teal work shirt"
+
+    check("'command centre' is not a person", not features_person("a command centre on a wall"))
+    check("'manual' is not a person", not features_person("an open manual on a desk"))
+    check("'a man' is a person", features_person("medium of a man at a fridge"))
+    check("an inlined character sheet is a person", features_person(f"wide of {char} at a desk", char))
+
+    doubled = f"medium of {char} writing on a chalkboard calendar, flat stare, warm light"
+    out = _attach_character(doubled, char)
+    check("the character is described once, not twice", out.lower().count("teal work shirt") == 1, out)
+    check("the object leads the prompt", out.lower().startswith("medium of the man writing on a chalkboard"), out)
+    spaced = doubled.replace(" slender ", "  slender ")
+    check("whitespace differences still strip",
+          _attach_character(spaced, char).lower().count("teal work shirt") == 1)
+    check("an object shot gets no character",
+          _attach_character("close of a spider plant in a pot, soft light", char)
+          == "close of a spider plant in a pot, soft light")
+
+    portraits = [{"prompt": f"medium of the man doing thing {i}"} for i in range(7)]
+    check("seven portraits need inserts", insert_shortfall(portraits) == 3, insert_shortfall(portraits))
+    mixed = portraits[:4] + [{"prompt": f"close of object {i} on a shelf"} for i in range(3)]
+    check("a third inserts is enough", insert_shortfall(mixed) == 0)
+
+
 def test_tournament() -> None:
     print("\ntournament")
     check("no bouts is neutral", bradley_terry(3, []) == [0.0, 0.0, 0.0])
@@ -480,7 +508,8 @@ def test_gate() -> None:
     store = Store(Path(tempfile.mkdtemp()) / "s.jsonl")
     lines = [Line(i, r, "word " * 12, duration=4.0, start=i * 4.0)
              for i, r in enumerate(["hook", "setup", "escalate", "turn", "punch"])]
-    shots = [{"ok": True, "image": f"/tmp/s{i}.png"} for i in range(6)]
+    # one frame per line, the punch getting two (lines 0..4 are hook..punch)
+    shots = [{"ok": True, "image": f"/tmp/s{i}.png", "line_index": min(i, 4)} for i in range(6)]
     info = {"duration": 20.0, "width": 1080, "height": 1920, "has_audio": True, "has_video": True}
     base = dict(lines=lines, shots=shots, video_info=info, audio_duration=20.0, lufs=-14.0,
                 script="word " * 100, store=store, premise="a unique premise about lifts",
@@ -503,6 +532,13 @@ def test_gate() -> None:
     check("rejects unmeasurable loudness", fails(lufs=None))
     check("rejects audio at the silence floor", fails(final_peak_dbfs=-45.0))
     check("allows quiet but real audio", not fails(final_peak_dbfs=-44.0))
+
+    # The first real CI render lost its punch shot, played the punchline over a reused frame,
+    # and passed. The hook and the punch each need a frame of their own.
+    no_punch = [s for s in shots if s["line_index"] != 4]
+    check("rejects a lost punch frame", any("punch" in f for f in fails(shots=no_punch)))
+    no_hook = [s for s in shots if s["line_index"] != 0]
+    check("rejects a lost hook frame", any("hook" in f for f in fails(shots=no_hook)))
     check("rejects too short", fails(audio_duration=8.0, video_info={**info, "duration": 8.0}))
     check("rejects too long", fails(audio_duration=75.0, video_info={**info, "duration": 75.0}))
     check("rejects av desync", fails(video_info={**info, "duration": 26.0}))
@@ -519,7 +555,7 @@ def test_gate() -> None:
 def main() -> int:
     for fn in (test_json_extraction, test_prompts, test_personas,
                test_caption_cards, test_coherence, test_subject_check,
-               test_llm_resilience, test_tournament, test_dedup,
+               test_llm_resilience, test_shot_people, test_tournament, test_dedup,
                test_voice_timing, test_script_cleaning, test_sparse_shot_timing,
                test_briefs_valid, test_image_breaker, test_gate):
         fn()

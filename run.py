@@ -111,6 +111,15 @@ def build(cfg: Config, rng: random.Random, work: Path, *, use_gate: bool) -> dic
     )
 
 
+def _critical_lines(lines) -> frozenset[int]:
+    """The line indices whose frame the joke cannot lose: the hook, and the (last) punch."""
+    out = {lines[0].index} if lines else set()
+    punches = [l.index for l in lines if l.role == "punch"]
+    if punches:
+        out.add(punches[-1])
+    return frozenset(out)
+
+
 def _finish(cfg: Config, rng: random.Random, work: Path, *, lines, shots, style: str,
             character: str, contract: str, negative: str, premise, category,
             audio_path: Path, audio_duration: float, engine: str, store: Store,
@@ -127,7 +136,9 @@ def _finish(cfg: Config, rng: random.Random, work: Path, *, lines, shots, style:
     checkpoint(work, "06_shots", {"style": style, "character": character, "shots": shots})
 
     # ── 7: images ───────────────────────────────────────────────────────────
-    shots = generate_all(cfg, shots, contract, negative, work / "images", rng.randint(1, 10**6))
+    critical = _critical_lines(lines)
+    shots = generate_all(cfg, shots, contract, negative, work / "images", rng.randint(1, 10**6),
+                         critical_lines=critical)
     usable = [s for s in shots if s.get("ok")]
     if len(usable) < 2:
         raise RuntimeError(f"only {len(usable)} usable images; refusing to render")

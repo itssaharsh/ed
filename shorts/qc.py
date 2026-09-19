@@ -76,6 +76,20 @@ def mechanical_checks(*, lines: list[Line], shots: list[dict], video_info: dict,
     if len(usable) < MIN_SHOTS:
         fails.append(f"only {len(usable)} usable shots (need {MIN_SHOTS})")
 
+    # The hook and the punch each need a frame of their own (CLAUDE.md). When a shot fails to
+    # generate, _finish redistributes its time onto a neighbour rather than showing black - which
+    # is right for a setup line and wrong for these two: the punchline then plays over whatever
+    # image came before it, and the visual gag never lands. The first real CI render did exactly
+    # that and passed.
+    covered = {s.get("line_index") for s in usable}
+    if lines:
+        if lines[0].index not in covered:
+            fails.append("the hook line has no frame of its own")
+        punches = [l.index for l in lines if l.role == "punch"]
+        if punches and punches[-1] not in covered:
+            fails.append("the punch line has no frame of its own - the gag would play over "
+                         "a reused image")
+
     distinct = {s.get("image") for s in usable}
     if usable and len(distinct) < max(2, len(usable) // 2):
         fails.append(f"only {len(distinct)} distinct images across {len(usable)} shots")
@@ -166,7 +180,7 @@ def judge_quality(llm: LLM, cfg: Config, script: str, duration: float,
         "08_qc", SCRIPT=script, BASELINE=baseline_script(cfg),
         DURATION=round(duration, 1), SHOT_COUNT=shot_count, VOICE="",
     )
-    return llm.complete_json(p, temperature=0.2)
+    return llm.complete_json(p, temperature=0.2, role="judge")
 
 
 def run_gate(llm: LLM, cfg: Config, *, lines: list[Line], shots: list[dict],

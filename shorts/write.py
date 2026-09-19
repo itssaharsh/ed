@@ -76,7 +76,7 @@ def _judge_factory(llm: LLM, item_kind: str, context: str):
     """
     def judge(a: str, b: str) -> dict:
         p = prompts.render("02_tournament", ITEM_KIND=item_kind, CONTEXT=context, A=a, B=b, VOICE="")
-        out = llm.complete_json(p, temperature=0.25)
+        out = llm.complete_json(p, temperature=0.25, role="judge")
         if not isinstance(out, dict) or "winner" not in out:
             raise LLMError(f"judge returned malformed verdict: {str(out)[:160]}")
         return out

@@ -3,7 +3,7 @@
 This is the stage that fixes "stock footage badly fitted". Nothing is searched for. Every frame is
 generated to match a specific moment.
 
-Variables: `{{LINES}}` `{{STYLE_NAME}}` `{{STYLE_CONTRACT}}` `{{TOTAL_SECONDS}}`
+Variables: `{{LINES}}` `{{STYLE_NAME}}` `{{STYLE_CONTRACT}}` `{{TOTAL_SECONDS}}` `{{REPAIR}}`
 
 ---
 
@@ -30,8 +30,15 @@ Style: **{{STYLE_NAME}}**
 - **One shot per line**, unless a line is long enough (>3.5s) to earn a second shot inside it.
 - **Vary the shot size** between adjacent shots. Two consecutive mediums read as a slideshow.
   Cycle among: wide establishing / medium / close-up / extreme close-up on an object / over-shoulder.
-- **The reaction shot is your best tool.** A person receiving the absurdity is usually funnier than
-  the absurdity itself.
+- **The reaction shot is your best tool** — used sparingly. A person receiving the absurdity is
+  often funnier than the absurdity itself, but a video that is *only* the person is a slideshow of
+  one face. The first real render from this pipeline was exactly that: seven portraits of the same
+  man, and not one frame of the chalkboard calendar, the spider plant or the webcam the jokes were
+  about.
+- **At least a third of the shots must be inserts: no person in frame at all.** A close-up of the
+  specific object the line names. When the line is about the chalkboard calendar, the shot is the
+  chalkboard calendar — not the man writing on it. The objects *are* the jokes; the viewer has to
+  see them.
 - **Visualise literally, not metaphorically.** If the line says someone has a spreadsheet for
   their coffee budget, show *the spreadsheet*. Literal-minded framing of an absurd statement is
   the joke. Do not illustrate the *feeling* of the line.
@@ -72,18 +79,20 @@ Build the shot list for these directed lines. Total runtime ≈ {{TOTAL_SECONDS}
 
 {{LINES}}
 
+{{REPAIR}}
+
 ## Output
 
 Strict JSON. No prose.
 
 ```json
 {
-  "character_sheet": "one sentence describing the recurring person, if any — age, build, hair, clothing. Reused verbatim in every prompt featuring them so they stay the same person across shots. Empty string if the video has no recurring character.",
+  "character_sheet": "one sentence describing the recurring person, if any — age, build, hair, clothing. It is attached automatically to every shot that features them. Do NOT copy it into the shot prompts: refer to them there only as 'the man' or 'the woman'. Empty string if the video has no recurring character.",
   "shots": [
     {
       "line_index": 0,
       "shot_size": "wide | medium | close | extreme-close | over-shoulder",
-      "prompt": "one dense sentence per the format above",
+      "prompt": "one dense sentence per the format above. Lead with the object or action the line is about, not with a description of the person",
       "motion": "push-in | pull-out | drift-left | drift-right | static-float",
       "why_this_image": "one sentence: what this shot does for the joke"
     }

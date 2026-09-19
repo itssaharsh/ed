@@ -21,6 +21,7 @@ from typing import Any
 import requests
 
 from .config import (
+    JUDGE_MAX_TOKENS, ROLE_ORDER,
     GEMINI_MAX_OUTPUT_TOKENS, GEMINI_THINKING_BUDGET,
     LLM_MAX_OUTPUT_TOKENS,
     GEMINI_MODELS, GROQ_MODELS, OPENROUTER_MODEL, POLLINATIONS_TEXT_MODEL, Config, logger,
@@ -98,7 +99,18 @@ def _raise_if_truncated(model: str, resp: Any) -> None:
         )
 
 
-def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
+# Models that returned a *daily* quota refusal this process. Skipped outright afterwards, so a
+# spent model does not burn a request - and a retry wait - on every subsequent call.
+_EXHAUSTED_TODAY: set[str] = set()
+
+
+def _is_rate_limit(msg: str) -> bool:
+    m = msg.lower()
+    return "429" in m or "resource_exhausted" in m or "rate limit" in m or "quota" in m
+
+
+def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
+            max_tokens: int | None = None) -> str:
     from google import genai
     from google.genai import types
 
@@ -114,6 +126,8 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) ->
     ]
     last: Exception | None = None
     for model in GEMINI_MODELS:
+        if model in _EXHAUSTED_TODAY:
+            continue
         try:
             resp = client.models.generate_content(
                 model=model,
@@ -131,22 +145,36 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool) ->
             if resp.text:
                 return resp.text
             last = LLMError(f"{model} returned no text")
+        except TruncatedError:
+            raise
         except Exception as exc:  # noqa: BLE001
             last = exc
-            if "404" in str(exc) or "NOT_FOUND" in str(exc):
+            msg = str(exc)
+            if "404" in msg or "NOT_FOUND" in msg:
                 logger.warning("gemini model %s is gone (404) — check config.GEMINI_MODELS", model)
+                continue
+            if _is_rate_limit(msg):
+                # Quotas are per model, so the next model has its own allowance. The old code
+                # raised here, which meant gemini-2.5-flash-lite was never once tried.
+                if "perday" in msg.lower().replace("_", "").replace("-", ""):
+                    _EXHAUSTED_TODAY.add(model)
+                    logger.warning("gemini %s daily quota spent; skipping it for this run", model)
+                else:
+                    logger.warning("gemini %s rate limited; trying the next model", model)
                 continue
             raise
     raise LLMError(f"all gemini models failed: {last}")
 
 
 def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
-                       temperature: float, want_json: bool, extra_headers: dict | None = None) -> str:
+                       temperature: float, want_json: bool, extra_headers: dict | None = None,
+                       max_tokens: int | None = None) -> str:
+    cap = max_tokens or LLM_MAX_OUTPUT_TOKENS
     body: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": prompt}],
         "temperature": temperature,
-        "max_tokens": LLM_MAX_OUTPUT_TOKENS,
+        "max_tokens": cap,
     }
     if want_json:
         body["response_format"] = {"type": "json_object"}
@@ -160,25 +188,27 @@ def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
         raise LLMError(f"{url} -> {r.status_code}: {r.text[:200]}")
     choice = r.json()["choices"][0]
     if choice.get("finish_reason") == "length":
-        raise TruncatedError(f"{model} hit max_tokens ({LLM_MAX_OUTPUT_TOKENS}) before finishing")
+        raise TruncatedError(f"{model} hit max_tokens ({cap}) before finishing")
     return choice["message"]["content"] or ""
 
 
-def _openrouter(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
+def _openrouter(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
+                max_tokens: int | None = None) -> str:
     return _openai_compatible(
         "https://openrouter.ai/api/v1/chat/completions", cfg.openrouter_key, OPENROUTER_MODEL,
-        prompt, temperature=temperature, want_json=want_json,
+        prompt, temperature=temperature, want_json=want_json, max_tokens=max_tokens,
         extra_headers={"HTTP-Referer": "https://github.com/", "X-Title": "shorts-pipeline"},
     )
 
 
-def _groq(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
+def _groq(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
+          max_tokens: int | None = None) -> str:
     last: Exception | None = None
     for model in GROQ_MODELS:
         try:
             return _openai_compatible(
                 "https://api.groq.com/openai/v1/chat/completions", cfg.groq_key, model,
-                prompt, temperature=temperature, want_json=want_json,
+                prompt, temperature=temperature, want_json=want_json, max_tokens=max_tokens,
             )
         except Exception as exc:  # noqa: BLE001
             last = exc
@@ -191,11 +221,18 @@ def _groq(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> s
                                       "not supported", "request too large")):
                 logger.warning("groq model %s unavailable (%s)", model, str(exc)[:120])
                 continue
+            if isinstance(exc, TruncatedError) or _is_rate_limit(msg):
+                # Groq limits are per model: a rate-limited gpt-oss-120b says nothing about
+                # gpt-oss-20b. Only when every model is limited does the ladder need to wait.
+                logger.warning("groq model %s %s; trying the next model", model,
+                               "truncated" if isinstance(exc, TruncatedError) else "rate limited")
+                continue
             raise
     raise LLMError(f"all groq models failed: {last}")
 
 
-def _pollinations(cfg: Config, prompt: str, *, temperature: float, want_json: bool) -> str:
+def _pollinations(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
+                  max_tokens: int | None = None) -> str:
     """Keyless floor - the rung that lets the pipeline run with no API keys at all.
 
     Two live quirks, both confirmed by probing:
@@ -261,10 +298,21 @@ class LLM:
         self.calls = 0
         self.last_provider: str | None = None
 
+    def _ordered(self, role: str) -> list[Provider]:
+        """Providers in this role's preference order (config.ROLE_ORDER), unknown names last."""
+        order = ROLE_ORDER.get(role, ROLE_ORDER["generate"])
+        rank = {name: i for i, name in enumerate(order)}
+        return sorted(self.providers, key=lambda p: rank.get(p.name, len(order)))
+
     def complete(self, prompt: str, *, temperature: float = 0.9, want_json: bool = True,
-                 exclude: frozenset[str] = frozenset()) -> str:
-        """First healthy provider not in `exclude`. Records which one answered in last_provider."""
+                 exclude: frozenset[str] = frozenset(), role: str = "generate") -> str:
+        """First healthy provider for `role` not in `exclude`. Records it in last_provider.
+
+        role="generate" prefers the best writer; role="judge" prefers the provider with the
+        most requests to spare and caps output at JUDGE_MAX_TOKENS. See config.ROLE_ORDER.
+        """
         self.last_provider = None
+        max_tokens = JUDGE_MAX_TOKENS if role == "judge" else None
         if not any(p.healthy for p in self.providers):
             raise LLMError(
                 "every LLM provider is exhausted or unreachable: "
@@ -272,13 +320,14 @@ class LLM:
                 + ". Add a key (see docs/SETUP.md) or wait for the rate limit to reset."
             )
         errors: list[str] = []
-        for p in self.providers:
+        for p in self._ordered(role):
             if not p.healthy or p.name in exclude:
                 continue
             for attempt in (1, 2):
                 try:
                     self.calls += 1
-                    out = p.call(self.cfg, prompt, temperature=temperature, want_json=want_json)
+                    out = p.call(self.cfg, prompt, temperature=temperature, want_json=want_json,
+                                 max_tokens=max_tokens)
                     if out and out.strip():
                         self.last_provider = p.name
                         return out
@@ -297,7 +346,8 @@ class LLM:
                     break
         raise LLMError("all providers failed:\n  " + "\n  ".join(errors))
 
-    def complete_json(self, prompt: str, *, temperature: float = 0.9, retries: int = 2) -> Any:
+    def complete_json(self, prompt: str, *, temperature: float = 0.9, retries: int = 2,
+                      role: str = "generate") -> Any:
         """Complete and parse JSON. Raises LLMError rather than returning a placeholder."""
         last: Exception | None = None
         # Providers that already returned something unusable for *this* prompt. The retry goes to
@@ -315,7 +365,7 @@ class LLM:
             exclude = frozenset(tried_bad) if healthy - tried_bad else frozenset()
             try:
                 return extract_json(self.complete(p, temperature=temperature, want_json=True,
-                                                  exclude=exclude))
+                                                  exclude=exclude, role=role))
             except LLMError as exc:
                 last = exc
                 if self.last_provider:

@@ -5,7 +5,9 @@ Every shot here is tied to a `line_index`, so a cut lands on a comic beat rather
 """
 from __future__ import annotations
 
+import math
 import random
+import re
 from typing import Any
 
 from . import prompts
@@ -40,35 +42,73 @@ def _dedupe_motion(shots: list[dict], rng: random.Random) -> list[dict]:
     return shots
 
 
-def build_shot_list(llm: LLM, lines: list[Line], style: str, total_seconds: float,
-                    rng: random.Random) -> tuple[list[dict], str, str, str]:
-    """Returns (shots, character_sheet, generation_suffix, negative_prompt).
+# ── People versus objects ───────────────────────────────────────────────────
+#
+# The first real render made every one of its seven shots a portrait of the same man. Three
+# causes, all mechanical: the prompt told the model to copy the character sheet "verbatim into
+# every prompt", this module then appended it a second time, and person detection was
+# `"man" in prompt` - which also matches "command", "manual" and "human". Weak image models weight
+# the opening words, so a prompt that *starts* with seventeen words of character description
+# comes back as a portrait whatever the rest of it asks for.
 
-    Note the third value is the SHORT suffix, not the long contract: the long form is art
-    direction for the shot-list model, the short form is what the image model actually receives.
-    """
-    contract, negative = prompts.style_contract(style)
-    suffix = prompts.style_suffix(style)
-    palette = prompts.style_palette(style)
-    contract_block = f"{contract}\n\nPalette: {palette}"
+_PERSON_RE = re.compile(
+    r"\b(man|men|woman|women|person|people|guy|girl|boy|lady|gentleman|kid|child|"
+    r"he|she|they|him|her|his|hers|neighbou?r|colleague|coworker|flatmate|roommate|"
+    r"friend|husband|wife|mum|mom|dad|father|mother)\b", re.I)
+_HYPHENS = re.compile(r"[\u2010-\u2015\u2212]")
+MIN_INSERT_FRACTION = 1 / 3
 
-    lines_block = "\n".join(
-        f"{l.index}. [{l.role}] {l.text}" for l in lines
-    )
-    p = prompts.render(
-        "06_shotlist",
-        LINES=lines_block, STYLE_NAME=style, STYLE_CONTRACT=contract_block,
-        TOTAL_SECONDS=round(total_seconds, 1), VOICE="",
-    )
-    try:
-        data = llm.complete_json(p, temperature=0.85)
-    except LLMError as exc:
-        logger.warning("shot list generation failed, using per-line fallback: %s", exc)
-        data = {}
 
-    raw = data.get("shots") if isinstance(data, dict) else data
-    character = str(data.get("character_sheet", "")).strip() if isinstance(data, dict) else ""
+def _norm(text: str) -> str:
+    return re.sub(r"\s+", " ", _HYPHENS.sub("-", text)).strip().lower()
 
+
+def features_person(prompt: str, character: str = "") -> bool:
+    """Whole-word match, so "command centre" and "manual" are not people."""
+    if character and _norm(character) and _norm(character) in _norm(prompt):
+        return True
+    return bool(_PERSON_RE.search(prompt))
+
+
+def _handle(character: str) -> str:
+    """Short noun for the recurring person: 'the man', 'the woman', else 'the person'."""
+    m = _PERSON_RE.search(character or "")
+    noun = m.group(1).lower() if m else "person"
+    if noun in {"he", "him", "his", "they", "she", "her", "hers"}:
+        noun = "person"
+    return f"the {noun}"
+
+
+def _strip_character(prompt: str, character: str) -> str:
+    """Replace an inlined copy of the character sheet with a short handle."""
+    if not character:
+        return prompt
+    norm_char = _norm(character).rstrip(".")
+    # re.escape turns each space into "\\ " (it escapes whitespace for VERBOSE-mode safety), so
+    # swap those for \\s+ to tolerate the model's spacing. tests/test_units.py guards this.
+    pattern = re.compile(re.escape(norm_char).replace(r"\ ", r"\s+"), re.I)
+    return pattern.sub(_handle(character), _HYPHENS.sub("-", prompt)).strip()
+
+
+def _attach_character(prompt: str, character: str) -> str:
+    """Put the object/action first and the character last, once."""
+    if not character or not features_person(prompt, character):
+        return prompt
+    body = _strip_character(prompt, character).rstrip(" .")
+    return f"{body}. {_handle(character).capitalize()} is {character.strip().rstrip('.')}."
+
+
+def insert_shortfall(shots: list[dict], character: str = "") -> int:
+    """How many more no-person insert shots this list needs to meet MIN_INSERT_FRACTION."""
+    if not shots:
+        return 0
+    need = math.ceil(len(shots) * MIN_INSERT_FRACTION)
+    have = sum(1 for s in shots if not features_person(s["prompt"], character))
+    return max(0, need - have)
+
+
+def _parse_shots(raw: Any, lines: list[Line]) -> list[dict]:
+    """Validate the model's shot list into clean dicts. Tolerates junk; never raises."""
     shots: list[dict] = []
     valid_indices = {l.index for l in lines}
     for item in raw or []:
@@ -91,6 +131,61 @@ def build_shot_list(llm: LLM, lines: list[Line], style: str, total_seconds: floa
             "motion": str(item.get("motion", "")).strip().lower(),
             "why_this_image": str(item.get("why_this_image", "")).strip(),
         })
+    return shots
+
+
+def build_shot_list(llm: LLM, lines: list[Line], style: str, total_seconds: float,
+                    rng: random.Random) -> tuple[list[dict], str, str, str]:
+    """Returns (shots, character_sheet, generation_suffix, negative_prompt).
+
+    Note the third value is the SHORT suffix, not the long contract: the long form is art
+    direction for the shot-list model, the short form is what the image model actually receives.
+    """
+    contract, negative = prompts.style_contract(style)
+    suffix = prompts.style_suffix(style)
+    palette = prompts.style_palette(style)
+    contract_block = f"{contract}\n\nPalette: {palette}"
+
+    lines_block = "\n".join(
+        f"{l.index}. [{l.role}] {l.text}" for l in lines
+    )
+    def ask(repair: str) -> dict:
+        p = prompts.render(
+            "06_shotlist",
+            LINES=lines_block, STYLE_NAME=style, STYLE_CONTRACT=contract_block,
+            TOTAL_SECONDS=round(total_seconds, 1), VOICE="", REPAIR=repair,
+        )
+        try:
+            out = llm.complete_json(p, temperature=0.85)
+        except LLMError as exc:
+            logger.warning("shot list generation failed: %s", exc)
+            return {}
+        return out if isinstance(out, dict) else {"shots": out}
+
+    data = ask("")
+    character = str(data.get("character_sheet", "")).strip()
+    shots = _parse_shots(data.get("shots"), lines)
+
+    # Enforced in code, not left to the prompt: the prompt already asked for inserts and the
+    # first real render still came back as seven portraits. One targeted re-ask names the
+    # measured shortfall; if that is no better, keep whichever list is closer and carry on - a
+    # shot-composition miss is not worth failing the run over.
+    short = insert_shortfall(shots, character)
+    if shots and short:
+        have = len(shots) - sum(1 for s in shots if features_person(s["prompt"], character))
+        logger.warning("stage 6: only %d of %d shots are object inserts; asking again", have,
+                       len(shots))
+        retry = ask(
+            f"CORRECTION: your previous shot list had {have} insert shot(s) out of "
+            f"{len(shots)}. At least {have + short} must have no person in frame at all - "
+            f"close-ups of the specific objects the lines name. Return the full list again."
+        )
+        retry_shots = _parse_shots(retry.get("shots"), lines)
+        retry_char = str(retry.get("character_sheet", "")).strip() or character
+        if retry_shots and insert_shortfall(retry_shots, retry_char) < short:
+            shots, character = retry_shots, retry_char
+        else:
+            logger.warning("stage 6: re-ask did not add inserts; keeping the original list")
 
     if not shots:
         # Fallback: one literal shot per line. Weak, but never leaves the video without frames.
@@ -109,8 +204,7 @@ def build_shot_list(llm: LLM, lines: list[Line], style: str, total_seconds: floa
     # stranger every cut. Visual incoherence between shots is the biggest cheap-AI tell.
     if character:
         for s in shots:
-            if any(w in s["prompt"].lower() for w in ("man", "woman", "person", "he ", "she ", "they ")):
-                s["prompt"] = f"{s['prompt']} The person is {character}"
+            s["prompt"] = _attach_character(s["prompt"], character)
 
     shots = _dedupe_motion(shots, rng)
     logger.info("stage 6: %d shots, style=%s, character=%s",

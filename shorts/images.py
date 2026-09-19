@@ -355,7 +355,8 @@ def generate_one(cfg: Config, prompt: str, negative: str, seed: int, out_path: P
 
 
 def generate_all(cfg: Config, shots: list[dict], style_contract: str, negative: str,
-                 out_dir: Path, seed_base: int) -> list[dict]:
+                 out_dir: Path, seed_base: int,
+                 critical_lines: frozenset[int] = frozenset()) -> list[dict]:
     """Generate every shot's image.
 
     Concurrency is deliberately low: the free tiers rate-limit hard (Pollinations anonymous is one
@@ -416,6 +417,25 @@ def generate_all(cfg: Config, shots: list[dict], style_contract: str, negative: 
             if path is None or not path.exists() or path.stat().st_size < 10_000:
                 logger.error("shot image missing or truncated after generation: %s", path)
                 r["ok"], r["image"] = False, None
+
+    # Second chance for the frames the joke cannot lose. The hook is the thumbnail and the first
+    # frame; the punch is where the visual gag has to land. The first real CI render lost its
+    # punch shot to a provider failure and played the punchline over a reused frame. One more
+    # serial attempt per critical shot, with a fresh seed, after the pacing window has cleared.
+    for i, r in enumerate(results):
+        if r["ok"] or r.get("line_index") not in critical_lines or state["tripped"]:
+            continue
+        logger.warning("shot %d (line %d) is a critical frame; one more attempt", i,
+                       r["line_index"])
+        full = f"{shots[i]['prompt'].strip().rstrip('.')}. {style_contract.strip()}"
+        seed = (r.get("seed") or 0) + 99_991
+        try:
+            path, provider = generate_one(cfg, full, negative, seed,
+                                          out_dir / f"shot_{i:02d}.png")
+            results[i] = {**shots[i], "image": str(path), "provider": provider, "seed": seed,
+                          "ok": True}
+        except ImageError as exc:
+            logger.error("critical shot %d failed again: %s", i, exc)
 
     ok = sum(1 for r in results if r["ok"])
     skipped = sum(1 for r in results if r.get("skipped"))

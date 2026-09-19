@@ -169,6 +169,26 @@ LLM_MAX_OUTPUT_TOKENS = 4096
 # 200 OK. Gemini's free tier is not TPM-shaped like Groq's (250K TPM), so a large ceiling costs
 # nothing; the thinking budget is capped separately so it can never again starve the answer.
 GEMINI_MAX_OUTPUT_TOKENS = 16384
+
+# ── Role routing ────────────────────────────────────────────────────────────
+# Measured in CI on 2026-09-19: Gemini's free tier refused everything after ~20 successful
+# requests in a day, even at 1.3 requests/minute - a daily cap, 25x lower than the 500/day this
+# pipeline was planned around. The same run spent that allowance on the *premise tournament*
+# (~19 judge calls) inside its first minute, so the script, the punch-up and the direction were
+# all written by the fallback model. Judging is ~80% of all calls and needs a verdict, not
+# prose; writing is ~6 calls a video and is where model quality actually shows.
+#
+# So: writing goes to Gemini first, judging goes to Groq first, and Gemini is judging's last
+# resort. Each provider's quota is per model, and every provider tries its next model on a
+# rate limit before giving up.
+ROLE_ORDER = {
+    "generate": ("gemini", "groq", "openrouter", "pollinations"),
+    "judge":    ("groq", "openrouter", "gemini", "pollinations"),
+}
+# A judge answers with ~150 tokens of JSON. Groq's 8K TPM limiter counts prompt + max_tokens,
+# so the 4096 writing budget let only one judge call through per minute - which is why the CI
+# run waited on Groq rate limits three times in a row.
+JUDGE_MAX_TOKENS = 1024
 GEMINI_THINKING_BUDGET = 2048
 
 # ── Publishing ──────────────────────────────────────────────────────────────
