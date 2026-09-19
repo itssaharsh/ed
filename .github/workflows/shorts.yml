@@ -1,16 +1,20 @@
 name: Generate Short
 
 on:
-  schedule:
-    # Every 2 hours = 12 runs/day.
-    #
-    # This was every 4 hours because videos.insert cost 1,600 of a shared 10,000-unit daily
-    # quota, making 6 uploads/day a hard ceiling. That is no longer true: videos.insert now has
-    # its own bucket at 1 unit per call, 100 calls/day. Upload is not the constraint any more.
-    #
-    # The real ceiling is Groq Orpheus at 100 requests/day (~7 TTS calls per video, so ~14
-    # videos), and before that the per-run image wall-clock. 12/day sits just under it.
-    - cron: '20 */2 * * *'
+  # ── PUBLISHING PAUSED (2026-09-19) ──────────────────────────────────────────
+  # The schedule is commented out while dry runs validate the fixes. Leaving it
+  # here but disabling the workflow meant every manual dry-run dispatch briefly
+  # re-armed the public cron. To resume publishing, uncomment `schedule:` below.
+  # schedule:
+  #   # Every 2 hours = 12 runs/day.
+  #   #
+  #   # This was every 4 hours because videos.insert cost 1,600 of a shared 10,000-unit daily
+  #   # quota, making 6 uploads/day a hard ceiling. That is no longer true: videos.insert now has
+  #   # its own bucket at 1 unit per call, 100 calls/day. Upload is not the constraint any more.
+  #   #
+  #   # The real ceiling is Groq Orpheus at 100 requests/day (~7 TTS calls per video, so ~14
+  #   # videos), and before that the per-run image wall-clock. 12/day sits just under it.
+  #   - cron: '20 */2 * * *'
   workflow_dispatch:
     inputs:
       dry_run:
