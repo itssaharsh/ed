@@ -164,7 +164,8 @@ def list_models(cfg: Config) -> None:
         try:
             from google import genai
             names = []
-            for m in genai.Client(api_key=cfg.gemini_key).models.list():
+            client = genai.Client(api_key=cfg.gemini_key)   # must outlive the pager
+            for m in client.models.list():
                 acts = getattr(m, "supported_actions", None) or []
                 if "generateContent" in acts or not acts:
                     names.append(m.name.split("/")[-1])

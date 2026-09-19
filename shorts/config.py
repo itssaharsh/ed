@@ -142,16 +142,20 @@ MAX_SATURATION_RANGE = 0.35
 # Verified against each provider's live model list on 2026-09-12. Re-verify before trusting
 # any of these: free tiers churn, and a stale id here is precisely what killed v1 - every
 # gemini-1.5-* call 404'd, the run continued, and it published a video built from a placeholder.
-GEMINI_MODELS = ("gemini-2.5-flash", "gemini-2.5-flash-lite")
+# gemini-2.5-flash-lite was here until CI showed it 404s for this key despite being listed on
+# Google's model page. Add ids only after `run.py --doctor` shows the key can reach them.
+GEMINI_MODELS = ("gemini-2.5-flash",)
 
 # Was "moonshotai/kimi-k2.6:free". The model is still on OpenRouter, but the :free endpoint is
 # gone - Kimi went paid, so RESEARCH.md's "the best humour writer reachable free" is no longer
 # true. Of the 19 remaining :free ids, nemotron-3-ultra is much the largest.
 OPENROUTER_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free"
 
-# Was ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"). Neither is on Groq's free tier any
-# more. These three are, at 30 RPM / 1K RPD / 8K TPM / 200K TPD.
-GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.6-27b")
+# Was ("llama-3.3-70b-versatile", "llama-3.1-8b-instant"), neither of which is still served.
+# Taken from the live /openai/v1/models listing in CI (2026-09-19), *not* from Groq's rate-limit
+# page - that page listed qwen/qwen3.6-27b, which 404s; the API serves qwen3.8-27b. Each model
+# has its own limits (30 RPM / 8K TPM on the free tier), so three models is ~3x the throughput.
+GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/qwen3.8-27b")
 
 POLLINATIONS_TEXT_MODEL = "openai-fast"
 

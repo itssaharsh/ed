@@ -345,6 +345,78 @@ def test_shot_people() -> None:
     check("a third inserts is enough", insert_shortfall(mixed) == 0)
 
 
+def test_rate_limits() -> None:
+    """Replays the third CI failure (2026-09-19, run 35447347192).
+
+    Judges spiked Groq's per-minute token limit; gpt-oss-120b and gpt-oss-20b returned 429 and
+    qwen3.6-27b returned 404 last, which hid the rate limit. Nothing waited, and the script stage
+    gave up after three retries 1.5 seconds apart.
+    """
+    import dataclasses
+    from shorts import llm as L
+    from shorts.config import Config
+    print("\nrate limits")
+
+    # parsing the provider's own wait
+    check("parses 'try again in 8.325s'", L._parse_wait("Please try again in 8.325s.") == 8.325)
+    check("parses minutes", L._parse_wait("Please try again in 1m2.5s") == 62.5)
+    check("parses milliseconds", abs((L._parse_wait("try again in 450ms") or 0) - 0.45) < 1e-9)
+    check("parses gemini retryDelay", L._parse_wait("'retryDelay': '23s'") == 23.0)
+    check("per-minute is not daily", not L._is_daily("on tokens per minute (TPM): Limit 8000"))
+    check("RPD is daily", L._is_daily("on requests per day (RPD): Limit 1000"))
+    check("gemini PerDay quota id is daily",
+          L._is_daily("quotaId: GenerateRequestsPerDayPerProjectPerModel-FreeTier"))
+
+    orig_oc, orig_models, orig_sleep = L._openai_compatible, L.GROQ_MODELS, L.time.sleep
+    slept: list[float] = []
+    L.time.sleep = lambda x: slept.append(x)
+    try:
+        # the exact CI sequence: 429, 429, 404-last
+        L._COOLDOWN.clear()
+        L.GROQ_MODELS = ("openai/gpt-oss-120b", "openai/gpt-oss-20b", "qwen/gone")
+        def oc(url, key, model, prompt, **k):
+            if model == "qwen/gone":
+                raise L.LLMError(f"{url} -> 404: The model `qwen/gone` does not exist")
+            raise L.RateLimitedError(f"{model} 429: Rate limit reached ... Limit 8000, Used 7400",
+                                     wait=8.3)
+        L._openai_compatible = oc
+        try:
+            L._groq(Config(), "p", temperature=0.2, want_json=True)
+            check("429, 429, 404 reads as a rate limit", False)
+        except L.RateLimitedError as exc:
+            check("429, 429, 404 reads as a rate limit, not a failure", exc.wait == 8.3)
+        check("'Used 7400' in a 429 is not misread as a 400",
+              L._cooling("openai/gpt-oss-120b"))
+
+        # the ladder waits when every provider is limited, then succeeds on the next pass
+        L._COOLDOWN.clear()
+        calls = {"n": 0}
+        def flaky(cfg, prompt, **k):
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise L.RateLimitedError("groq 429", wait=5.0)
+            return '{"ok": true}'
+        llm = L.LLM(dataclasses.replace(Config(), gemini_key=None, groq_key=None,
+                                        openrouter_key=None, pollinations_token=None))
+        llm.providers = [L.Provider("groq", flaky)]
+        slept.clear()
+        check("waits out a per-minute limit and succeeds",
+              llm.complete_json("p", role="judge") == {"ok": True})
+        check("the wait came from the provider", slept and 5.0 <= slept[0] <= 7.1, str(slept))
+        check("a per-minute limit does not demote", llm.providers[0].healthy)
+
+        # a limited provider does not block a free one
+        slept.clear()
+        def limited(cfg, prompt, **k): raise L.RateLimitedError("gemini 429", wait=30.0)
+        def free(cfg, prompt, **k): return '{"ok": 1}'
+        llm.providers = [L.Provider("gemini", limited), L.Provider("groq", free)]
+        check("a free provider answers without any wait",
+              llm.complete_json("p") == {"ok": 1} and not slept, str(slept))
+    finally:
+        L._openai_compatible, L.GROQ_MODELS, L.time.sleep = orig_oc, orig_models, orig_sleep
+        L._COOLDOWN.clear()
+
+
 def test_tournament() -> None:
     print("\ntournament")
     check("no bouts is neutral", bradley_terry(3, []) == [0.0, 0.0, 0.0])
@@ -555,7 +627,8 @@ def test_gate() -> None:
 def main() -> int:
     for fn in (test_json_extraction, test_prompts, test_personas,
                test_caption_cards, test_coherence, test_subject_check,
-               test_llm_resilience, test_shot_people, test_tournament, test_dedup,
+               test_llm_resilience, test_rate_limits, test_shot_people,
+               test_tournament, test_dedup,
                test_voice_timing, test_script_cleaning, test_sparse_shot_timing,
                test_briefs_valid, test_image_breaker, test_gate):
         fn()

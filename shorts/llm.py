@@ -99,14 +99,51 @@ def _raise_if_truncated(model: str, resp: Any) -> None:
         )
 
 
-# Models that returned a *daily* quota refusal this process. Skipped outright afterwards, so a
-# spent model does not burn a request - and a retry wait - on every subsequent call.
-_EXHAUSTED_TODAY: set[str] = set()
+class RateLimitedError(LLMError):
+    """A provider refused on rate or quota grounds. Carries how long to wait, if it said."""
+
+    def __init__(self, msg: str, *, wait: float | None = None, daily: bool = False):
+        super().__init__(msg)
+        self.wait = wait
+        self.daily = daily
+
+
+# Per-model cool-downs (model -> monotonic time it may be tried again). Not a run-long ban: in CI
+# on 2026-09-19 Gemini refused with a "per day" quota at 14:00:07 and answered normally at 14:05,
+# so a model marked spent for the whole run throws away capacity that comes back mid-run.
+_COOLDOWN: dict[str, float] = {}
+DAILY_COOLDOWN = 600.0          # seconds to skip a model after a per-day refusal
+MAX_WAIT = 70.0                 # longest single wait for a per-minute window to clear
+
+
+def _cooling(model: str) -> bool:
+    return _COOLDOWN.get(model, 0.0) > time.monotonic()
+
+
+def _cool(model: str, seconds: float) -> None:
+    _COOLDOWN[model] = time.monotonic() + seconds
 
 
 def _is_rate_limit(msg: str) -> bool:
     m = msg.lower()
     return "429" in m or "resource_exhausted" in m or "rate limit" in m or "quota" in m
+
+
+def _is_daily(msg: str) -> bool:
+    m = msg.lower().replace("_", "").replace("-", "").replace(" ", "")
+    return "perday" in m or "(rpd)" in m or "(tpd)" in m
+
+
+def _parse_wait(text: str) -> float | None:
+    """Seconds to wait, from "try again in 1m2.5s" / "8.3s" / "450ms" / "retryDelay: '23s'"."""
+    # (?!s) so the "m" of "ms" is never read as minutes - "450ms" once parsed as 7.5 hours.
+    m = re.search(r"try again in\s+(?:(\d+)m(?!s))?\s*([\d.]+)?\s*(ms|s)?", text, re.I)
+    if m and (m.group(1) or m.group(2)):
+        mins = float(m.group(1) or 0)
+        val = float(m.group(2) or 0)
+        return mins * 60 + (val / 1000 if (m.group(3) or "").lower() == "ms" else val)
+    m = re.search(r"retry(?:Delay|\s+in)['\"]?\s*[:=]?\s*['\"]?([\d.]+)\s*s", text, re.I)
+    return float(m.group(1)) if m else None
 
 
 def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
@@ -125,8 +162,10 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
         )
     ]
     last: Exception | None = None
+    limited: list[RateLimitedError] = []
+    other: Exception | None = None      # any failure that is not a rate limit
     for model in GEMINI_MODELS:
-        if model in _EXHAUSTED_TODAY:
+        if _cooling(model):
             continue
         try:
             resp = client.models.generate_content(
@@ -144,7 +183,7 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
             _raise_if_truncated(model, resp)
             if resp.text:
                 return resp.text
-            last = LLMError(f"{model} returned no text")
+            last = other = LLMError(f"{model} returned no text")
         except TruncatedError:
             raise
         except Exception as exc:  # noqa: BLE001
@@ -152,18 +191,29 @@ def _gemini(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
             msg = str(exc)
             if "404" in msg or "NOT_FOUND" in msg:
                 logger.warning("gemini model %s is gone (404) — check config.GEMINI_MODELS", model)
+                other = exc
                 continue
             if _is_rate_limit(msg):
-                # Quotas are per model, so the next model has its own allowance. The old code
-                # raised here, which meant gemini-2.5-flash-lite was never once tried.
-                if "perday" in msg.lower().replace("_", "").replace("-", ""):
-                    _EXHAUSTED_TODAY.add(model)
-                    logger.warning("gemini %s daily quota spent; skipping it for this run", model)
-                else:
-                    logger.warning("gemini %s rate limited; trying the next model", model)
+                # Quotas are per model, so the next model has its own allowance.
+                daily, wait = _is_daily(msg), _parse_wait(msg)
+                _cool(model, DAILY_COOLDOWN if daily else (wait or 20.0))
+                logger.warning("gemini %s %s; cooling %.0fs", model,
+                               "daily quota refused" if daily else "rate limited",
+                               DAILY_COOLDOWN if daily else (wait or 20.0))
+                limited.append(RateLimitedError(msg[:160], wait=wait, daily=daily))
                 continue
             raise
-    raise LLMError(f"all gemini models failed: {last}")
+    if other is None:
+        # Every model was either rate limited just now or still cooling down from earlier.
+        # Report it as a rate limit so the ladder waits or moves on, instead of treating the
+        # provider as broken.
+        waits = [e.wait for e in limited if e.wait]
+        raise RateLimitedError(
+            f"all gemini models rate limited or cooling: {limited[-1] if limited else 'cooling'}",
+            wait=min(waits) if waits else None,
+            daily=(not limited) or all(e.daily for e in limited),
+        )
+    raise LLMError(f"all gemini models failed: {other}")
 
 
 def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
@@ -181,9 +231,23 @@ def _openai_compatible(url: str, key: str, model: str, prompt: str, *,
     if "gpt-oss" in model:
         # Reasoning model, same trap as Gemini thinking: reasoning tokens come out of max_tokens.
         body["reasoning_effort"] = "low"
+    elif "qwen" in model:
+        # Qwen3 on Groq otherwise emits its reasoning inside the content as <think>...</think>,
+        # ahead of the JSON - which extract_json would then have to dig through.
+        body["reasoning_format"] = "hidden"
     headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
     headers.update(extra_headers or {})
     r = requests.post(url, headers=headers, json=body, timeout=120)
+    if r.status_code == 429:
+        # Read the wait from the provider, not a guess. Groq's message runs past 200 characters,
+        # so the old truncated error string cut off the "try again in Ns" it carried.
+        text = r.text or ""
+        wait = None
+        try:
+            wait = float(r.headers.get("retry-after", ""))
+        except (TypeError, ValueError):
+            wait = _parse_wait(text)
+        raise RateLimitedError(f"{model} 429: {text[:160]}", wait=wait, daily=_is_daily(text))
     if r.status_code != 200:
         raise LLMError(f"{url} -> {r.status_code}: {r.text[:200]}")
     choice = r.json()["choices"][0]
@@ -203,31 +267,52 @@ def _openrouter(cfg: Config, prompt: str, *, temperature: float, want_json: bool
 
 def _groq(cfg: Config, prompt: str, *, temperature: float, want_json: bool,
           max_tokens: int | None = None) -> str:
+    """Try each Groq model in turn. Limits are per model, so one model's 429 is not Groq's."""
     last: Exception | None = None
+    limited: list[RateLimitedError] = []
     for model in GROQ_MODELS:
+        if _cooling(model):
+            continue
         try:
             return _openai_compatible(
                 "https://api.groq.com/openai/v1/chat/completions", cfg.groq_key, model,
                 prompt, temperature=temperature, want_json=want_json, max_tokens=max_tokens,
             )
+        except RateLimitedError as exc:
+            # Checked first, and by type. A string test for "400" also matches Groq's own 429
+            # text ("Limit 8000, Used 7400"), which would misfile a one-minute wait as a
+            # permanently broken model.
+            _cool(model, DAILY_COOLDOWN if exc.daily else (exc.wait or 20.0))
+            logger.warning("groq %s rate limited (%s); cooling %.0fs", model,
+                           "daily" if exc.daily else "per-minute",
+                           DAILY_COOLDOWN if exc.daily else (exc.wait or 20.0))
+            limited.append(exc)
+            last = exc
+        except TruncatedError as exc:
+            logger.warning("groq %s truncated; trying the next model", model)
+            last = exc
         except Exception as exc:  # noqa: BLE001
             last = exc
-            # Advance to the next model rather than killing the whole rung. A 400 (unsupported
-            # response_format) or 413 (prompt + max_tokens over the TPM ceiling) is a property
-            # of *this model*, not of Groq - raising here took the provider down entirely and
-            # dropped the run onto a tier that cannot serve it.
             msg = str(exc).lower()
-            if any(t in msg for t in ("404", "400", "413", "decommissioned",
-                                      "not supported", "request too large")):
+            # Match the status code as _openai_compatible formats it ("-> 404: ..."), not as a
+            # bare number that can appear anywhere in a response body.
+            if any(f"-> {code}:" in msg for code in ("404", "400", "413")) or \
+                    "decommissioned" in msg or "not supported" in msg:
                 logger.warning("groq model %s unavailable (%s)", model, str(exc)[:120])
-                continue
-            if isinstance(exc, TruncatedError) or _is_rate_limit(msg):
-                # Groq limits are per model: a rate-limited gpt-oss-120b says nothing about
-                # gpt-oss-20b. Only when every model is limited does the ladder need to wait.
-                logger.warning("groq model %s %s; trying the next model", model,
-                               "truncated" if isinstance(exc, TruncatedError) else "rate limited")
+                if "-> 404:" in msg:
+                    _cool(model, 3600.0)        # it does not exist; stop asking this run
                 continue
             raise
+    if limited:
+        # At least one model is only rate limited: that is a wait, not a failure. This is the
+        # case the CI run of 2026-09-19 got wrong - two 429s and a 404, where the 404 came last
+        # and hid the rate limit, so nothing waited and the stage gave up in four seconds.
+        waits = [e.wait for e in limited if e.wait]
+        raise RateLimitedError(f"all groq models rate limited or unavailable: {last}",
+                               wait=min(waits) if waits else None,
+                               daily=all(e.daily for e in limited))
+    if last is None:
+        raise RateLimitedError("all groq models cooling down", wait=None, daily=False)
     raise LLMError(f"all groq models failed: {last}")
 
 
@@ -320,10 +405,17 @@ class LLM:
                 + ". Add a key (see docs/SETUP.md) or wait for the rate limit to reset."
             )
         errors: list[str] = []
-        for p in self._ordered(role):
-            if not p.healthy or p.name in exclude:
-                continue
-            for attempt in (1, 2):
+        # Passes over the whole ladder. A rate limit on one provider moves straight on to the
+        # next - waiting on a limited provider while another is free was the old behaviour. Only
+        # when *every* provider is rate limited does it sleep, and then for the shortest wait any
+        # of them reported, up to MAX_WAIT. Per-minute limits never demote a provider: the old
+        # code demoted after two, which on 2026-09-19 took the best writer out of the run for
+        # good one minute in, over a window that clears in sixty seconds.
+        for rnd in range(1, 4):
+            waits: list[float] = []
+            for p in self._ordered(role):
+                if not p.healthy or p.name in exclude:
+                    continue
                 try:
                     self.calls += 1
                     out = p.call(self.cfg, prompt, temperature=temperature, want_json=want_json,
@@ -332,19 +424,22 @@ class LLM:
                         self.last_provider = p.name
                         return out
                     errors.append(f"{p.name}: empty")
+                except RateLimitedError as exc:
+                    errors.append(f"{p.name}: {str(exc)[:140]}")
+                    if not exc.daily:
+                        waits.append(exc.wait or 20.0)
                 except Exception as exc:  # noqa: BLE001
                     msg = str(exc)
                     errors.append(f"{p.name}: {msg[:140]}")
-                    if "429" in msg or "rate" in msg.lower() or "quota" in msg.lower():
-                        if attempt == 1:
-                            wait = 20 * attempt + random.uniform(0, 5)
-                            logger.warning("%s rate limited; waiting %.0fs", p.name, wait)
-                            time.sleep(wait)
-                            continue
-                        logger.warning("%s exhausted — demoting", p.name)
-                        p.healthy = False
-                    break
-        raise LLMError("all providers failed:\n  " + "\n  ".join(errors))
+                    if _is_rate_limit(msg):      # providers without a structured 429
+                        waits.append(20.0)
+            if not waits or rnd == 3:
+                break
+            wait = min(max(min(waits), 1.0), MAX_WAIT) + random.uniform(0, 2)
+            logger.warning("every %s provider is rate limited; waiting %.0fs (pass %d/3)",
+                           role, wait, rnd)
+            time.sleep(wait)
+        raise LLMError("all providers failed:\n  " + "\n  ".join(errors[-6:]))
 
     def complete_json(self, prompt: str, *, temperature: float = 0.9, retries: int = 2,
                       role: str = "generate") -> Any:
